@@ -37,8 +37,8 @@ def calculate_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def find_peaks_troughs(data, order=5):
-    """Find local peaks and troughs"""
+def find_peaks_troughs(data, order=3):
+    """Find local peaks and troughs with lower order for better detection"""
     price_peaks = argrelextrema(data['Close'].values, np.greater, order=order)[0]
     price_troughs = argrelextrema(data['Close'].values, np.less, order=order)[0]
     rsi_peaks = argrelextrema(data['RSI'].values, np.greater, order=order)[0]
@@ -166,13 +166,17 @@ def analyze_single_timeframe(symbol, period, interval):
         return None
 
 def analyze_stock(symbol):
-    """Analyze stock across 2 timeframes: 15m (1d) and 1h (5d)"""
+    """Analyze stock across 2 timeframes: 15m (5d) and 1h (1mo)"""
     
-    # 15-minute for 1 day
-    tf_15m = analyze_single_timeframe(symbol, '1d', '15m')
+    # 15-minute for 5 days (more data for better peak detection)
+    tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
     
-    # 1-hour for 5 days
-    tf_1h = analyze_single_timeframe(symbol, '5d', '1h')
+    # 1-hour for 1 month (more data for better peak detection)
+    tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
+    
+    # Check if we got data
+    if tf_15m is None and tf_1h is None:
+        return None  # No data available
     
     # Get current price
     try:
@@ -217,7 +221,7 @@ def analyze_stock(symbol):
             if tf_1h['has_bearish']:
                 details.append(f"1h: {tf_1h['bearish_strength']:.0f}")
     
-    # Only return stocks with signals
+    # Return stocks with signals
     if signal != "NEUTRAL":
         return {
             'symbol': symbol.replace('.NS', ''),
@@ -229,17 +233,18 @@ def analyze_stock(symbol):
             'rsi_1h': tf_1h['current_rsi'] if tf_1h else None
         }
     
-    return None
+    # Return empty dict for "no signal but has data"
+    return {}
 
 # Main App
 st.title("📈 Nifty 50 RSI Divergence Scanner")
-st.markdown("**Scanning 15-min (1 day) + 1-hour (5 days) timeframes**")
+st.markdown("**Scanning 15-min (5 days) + 1-hour (1 month) timeframes**")
 
 col1, col2 = st.columns([3, 1])
 with col1:
-    st.markdown("🔍 **Timeframes:** 15-minute interval (1 day) + 1-hour interval (5 days)")
+    st.markdown("🔍 **Timeframes:** 15-minute interval (5 days) + 1-hour interval (1 month)")
 with col2:
-    if st.button("🔄 Scan Now", type="primary", use_container_width=True):
+    if st.button("🔄 Scan Now", type="primary", width="stretch"):
         st.cache_data.clear()
 
 st.divider()
@@ -250,13 +255,24 @@ with st.spinner("Scanning Nifty 50 stocks..."):
     status_text = st.empty()
     
     results = []
+    no_signal_count = 0
+    no_data_count = 0
     total = len(NIFTY_50_SYMBOLS)
     
     for i, symbol in enumerate(NIFTY_50_SYMBOLS):
         status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
         result = analyze_stock(symbol)
-        if result:
+        
+        if result is None:
+            # No data available at all
+            no_data_count += 1
+        elif result == {}:
+            # Data available but no divergence signal
+            no_signal_count += 1
+        else:
+            # Has a signal (BUY or SELL)
             results.append(result)
+            
         progress_bar.progress((i + 1) / total)
     
     progress_bar.empty()
@@ -273,11 +289,13 @@ sell_signals.sort(key=lambda x: x['score'], reverse=True)
 # Display results
 st.success(f"✅ Scan completed at {datetime.now().strftime('%H:%M:%S')}")
 
-# Metrics
-col1, col2, col3 = st.columns(3)
+# Metrics with all counters
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("🟢 BUY Signals", len(buy_signals))
 col2.metric("🔴 SELL Signals", len(sell_signals))
-col3.metric("📊 Total Signals", len(results))
+col3.metric("⚪ No Signal", no_signal_count)
+col4.metric("❌ No Data", no_data_count)
+col5.metric("📊 Total Scanned", total)
 
 st.divider()
 
@@ -293,7 +311,7 @@ with col_left:
         df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
         df_buy['Score'] = df_buy['Score'].round(1)
         df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
-        st.dataframe(df_buy, use_container_width=True, hide_index=True)
+        st.dataframe(df_buy, width="stretch", hide_index=True)
     else:
         st.info("No BUY signals detected")
 
@@ -306,7 +324,7 @@ with col_right:
         df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
         df_sell['Score'] = df_sell['Score'].round(1)
         df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
-        st.dataframe(df_sell, use_container_width=True, hide_index=True)
+        st.dataframe(df_sell, width="stretch", hide_index=True)
     else:
         st.info("No SELL signals detected")
 
