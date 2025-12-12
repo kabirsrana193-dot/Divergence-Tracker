@@ -5,6 +5,7 @@ import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
 import warnings
+import traceback
 warnings.filterwarnings('ignore')
 
 # Page config
@@ -129,7 +130,7 @@ def detect_bearish_divergence(data, lookback=30):
     return divergences
 
 def analyze_single_timeframe(symbol, period, interval):
-    """Analyze stock for one timeframe - EXACTLY like Colab"""
+    """Analyze stock for one timeframe"""
     try:
         stock = yf.Ticker(symbol)
         data = stock.history(period=period, interval=interval)
@@ -139,6 +140,9 @@ def analyze_single_timeframe(symbol, period, interval):
         
         data['RSI'] = calculate_rsi(data)
         data = data.dropna()
+        
+        if len(data) < 20:  # Need minimum data after dropna
+            return None
         
         bullish_div = detect_bullish_divergence(data)
         bearish_div = detect_bearish_divergence(data)
@@ -154,98 +158,113 @@ def analyze_single_timeframe(symbol, period, interval):
         return result
         
     except Exception as e:
+        # Log error for debugging
+        st.session_state.setdefault('errors', []).append(f"{symbol} ({period}/{interval}): {str(e)}")
         return None
 
 def analyze_stock_combined(symbol):
-    """Analyze stock across multiple timeframes - EXACTLY like Colab"""
-    # Intraday: 15min + 1hour
-    tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
-    tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
-    
-    # Longer-term: daily 5d + daily 3mo
-    tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
-    tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
-    
-    # Get current price
+    """Analyze stock across multiple timeframes"""
     try:
-        stock = yf.Ticker(symbol)
-        current_price = stock.history(period='1d')['Close'].iloc[-1]
-    except:
-        current_price = 0
-    
-    # Calculate INTRADAY score
-    intraday_score = 0
-    intraday_signal = "NEUTRAL"
-    intraday_details = []
-    
-    if tf_15m and tf_1h:
-        if tf_15m['has_bullish'] or tf_1h['has_bullish']:
-            intraday_score = (tf_15m['bullish_strength'] + tf_1h['bullish_strength']) / 2
-            
-            if tf_15m['has_bullish'] and tf_1h['has_bullish']:
-                intraday_score += 20
-                intraday_signal = "STRONG BUY"
-            else:
-                intraday_signal = "BUY"
-                
-            intraday_details.append(f"15m: {tf_15m['bullish_strength']:.0f}" if tf_15m['has_bullish'] else "15m: -")
-            intraday_details.append(f"1h: {tf_1h['bullish_strength']:.0f}" if tf_1h['has_bullish'] else "1h: -")
+        # Intraday: 15min + 1hour
+        tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
+        tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
         
-        elif tf_15m['has_bearish'] or tf_1h['has_bearish']:
-            intraday_score = (tf_15m['bearish_strength'] + tf_1h['bearish_strength']) / 2
-            
-            if tf_15m['has_bearish'] and tf_1h['has_bearish']:
-                intraday_score += 20
-                intraday_signal = "STRONG SELL"
-            else:
-                intraday_signal = "SELL"
-                
-            intraday_details.append(f"15m: {tf_15m['bearish_strength']:.0f}" if tf_15m['has_bearish'] else "15m: -")
-            intraday_details.append(f"1h: {tf_1h['bearish_strength']:.0f}" if tf_1h['has_bearish'] else "1h: -")
-    
-    # Calculate LONGER-TERM score
-    longer_score = 0
-    longer_signal = "NEUTRAL"
-    longer_details = []
-    
-    if tf_5d and tf_3mo:
-        if tf_5d['has_bullish'] or tf_3mo['has_bullish']:
-            longer_score = (tf_5d['bullish_strength'] + tf_3mo['bullish_strength']) / 2
-            
-            if tf_5d['has_bullish'] and tf_3mo['has_bullish']:
-                longer_score += 20
-                longer_signal = "STRONG BUY"
-            else:
-                longer_signal = "BUY"
-                
-            longer_details.append(f"5d: {tf_5d['bullish_strength']:.0f}" if tf_5d['has_bullish'] else "5d: -")
-            longer_details.append(f"3mo: {tf_3mo['bullish_strength']:.0f}" if tf_3mo['has_bullish'] else "3mo: -")
+        # Longer-term: daily 5d + daily 3mo
+        tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
+        tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
         
-        elif tf_5d['has_bearish'] or tf_3mo['has_bearish']:
-            longer_score = (tf_5d['bearish_strength'] + tf_3mo['bearish_strength']) / 2
-            
-            if tf_5d['has_bearish'] and tf_3mo['has_bearish']:
-                longer_score += 20
-                longer_signal = "STRONG SELL"
-            else:
-                longer_signal = "SELL"
+        # Get current price
+        try:
+            stock = yf.Ticker(symbol)
+            current_price = stock.history(period='1d')['Close'].iloc[-1]
+        except:
+            current_price = 0
+        
+        # Calculate INTRADAY score
+        intraday_score = 0
+        intraday_signal = "NEUTRAL"
+        intraday_details = []
+        
+        if tf_15m and tf_1h:
+            if tf_15m['has_bullish'] or tf_1h['has_bullish']:
+                intraday_score = (tf_15m['bullish_strength'] + tf_1h['bullish_strength']) / 2
                 
-            longer_details.append(f"5d: {tf_5d['bearish_strength']:.0f}" if tf_5d['has_bearish'] else "5d: -")
-            longer_details.append(f"3mo: {tf_3mo['bearish_strength']:.0f}" if tf_3mo['has_bearish'] else "3mo: -")
-    
-    if intraday_signal != "NEUTRAL" or longer_signal != "NEUTRAL":
-        return {
-            'symbol': symbol.replace('.NS', ''),
-            'price': current_price,
-            'intraday_score': min(intraday_score, 100),
-            'intraday_signal': intraday_signal,
-            'intraday_details': ', '.join(intraday_details),
-            'longer_score': min(longer_score, 100),
-            'longer_signal': longer_signal,
-            'longer_details': ', '.join(longer_details)
-        }
-    
-    return None
+                if tf_15m['has_bullish'] and tf_1h['has_bullish']:
+                    intraday_score += 20
+                    intraday_signal = "STRONG BUY"
+                else:
+                    intraday_signal = "BUY"
+                    
+                intraday_details.append(f"15m: {tf_15m['bullish_strength']:.0f}" if tf_15m['has_bullish'] else "15m: -")
+                intraday_details.append(f"1h: {tf_1h['bullish_strength']:.0f}" if tf_1h['has_bullish'] else "1h: -")
+            
+            elif tf_15m['has_bearish'] or tf_1h['has_bearish']:
+                intraday_score = (tf_15m['bearish_strength'] + tf_1h['bearish_strength']) / 2
+                
+                if tf_15m['has_bearish'] and tf_1h['has_bearish']:
+                    intraday_score += 20
+                    intraday_signal = "STRONG SELL"
+                else:
+                    intraday_signal = "SELL"
+                    
+                intraday_details.append(f"15m: {tf_15m['bearish_strength']:.0f}" if tf_15m['has_bearish'] else "15m: -")
+                intraday_details.append(f"1h: {tf_1h['bearish_strength']:.0f}" if tf_1h['has_bearish'] else "1h: -")
+        
+        # Calculate LONGER-TERM score
+        longer_score = 0
+        longer_signal = "NEUTRAL"
+        longer_details = []
+        
+        if tf_5d and tf_3mo:
+            if tf_5d['has_bullish'] or tf_3mo['has_bullish']:
+                longer_score = (tf_5d['bullish_strength'] + tf_3mo['bullish_strength']) / 2
+                
+                if tf_5d['has_bullish'] and tf_3mo['has_bullish']:
+                    longer_score += 20
+                    longer_signal = "STRONG BUY"
+                else:
+                    longer_signal = "BUY"
+                    
+                longer_details.append(f"5d: {tf_5d['bullish_strength']:.0f}" if tf_5d['has_bullish'] else "5d: -")
+                longer_details.append(f"3mo: {tf_3mo['bullish_strength']:.0f}" if tf_3mo['has_bullish'] else "3mo: -")
+            
+            elif tf_5d['has_bearish'] or tf_3mo['has_bearish']:
+                longer_score = (tf_5d['bearish_strength'] + tf_3mo['bearish_strength']) / 2
+                
+                if tf_5d['has_bearish'] and tf_3mo['has_bearish']:
+                    longer_score += 20
+                    longer_signal = "STRONG SELL"
+                else:
+                    longer_signal = "SELL"
+                    
+                longer_details.append(f"5d: {tf_5d['bearish_strength']:.0f}" if tf_5d['has_bearish'] else "5d: -")
+                longer_details.append(f"3mo: {tf_3mo['bearish_strength']:.0f}" if tf_3mo['has_bearish'] else "3mo: -")
+        
+        if intraday_signal != "NEUTRAL" or longer_signal != "NEUTRAL":
+            return {
+                'symbol': symbol.replace('.NS', ''),
+                'price': current_price,
+                'intraday_score': min(intraday_score, 100),
+                'intraday_signal': intraday_signal,
+                'intraday_details': ', '.join(intraday_details) if intraday_details else '-',
+                'longer_score': min(longer_score, 100),
+                'longer_signal': longer_signal,
+                'longer_details': ', '.join(longer_details) if longer_details else '-'
+            }
+        
+        return None
+        
+    except Exception as e:
+        st.session_state.setdefault('errors', []).append(f"{symbol}: {str(e)}")
+        return None
+
+# Initialize session state
+if 'scan_results' not in st.session_state:
+    st.session_state.scan_results = None
+if 'last_scan_time' not in st.session_state:
+    st.session_state.last_scan_time = None
+if 'errors' not in st.session_state:
+    st.session_state.errors = []
 
 # Main App
 st.title("📈 Nifty 50 RSI Divergence Scanner")
@@ -258,27 +277,43 @@ with col2:
     st.markdown("**Longer-term:** Daily 5d + 3mo")
 with col3:
     if st.button("🔄 Scan Now", type="primary", use_container_width=True):
-        st.cache_data.clear()
+        st.session_state.scan_results = None
+        st.session_state.last_scan_time = None
+        st.session_state.errors = []
+        st.rerun()
 
 st.divider()
 
-# Scanning
-with st.spinner("Scanning Nifty 50 stocks..."):
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    results = []
-    total = len(NIFTY_50_SYMBOLS)
-    
-    for i, symbol in enumerate(NIFTY_50_SYMBOLS):
-        status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
-        result = analyze_stock_combined(symbol)
-        if result:
-            results.append(result)
-        progress_bar.progress((i + 1) / total)
-    
-    progress_bar.empty()
-    status_text.empty()
+# Run scan if no results
+if st.session_state.scan_results is None:
+    with st.spinner("Scanning Nifty 50 stocks..."):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        results = []
+        total = len(NIFTY_50_SYMBOLS)
+        
+        for i, symbol in enumerate(NIFTY_50_SYMBOLS):
+            status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
+            result = analyze_stock_combined(symbol)
+            if result:
+                results.append(result)
+            progress_bar.progress((i + 1) / total)
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.session_state.scan_results = results
+        st.session_state.last_scan_time = datetime.now()
+
+# Use cached results
+results = st.session_state.scan_results if st.session_state.scan_results else []
+
+# Display errors if in debug mode
+if st.session_state.errors:
+    with st.expander("⚠️ Debug Info - Errors Encountered"):
+        for err in st.session_state.errors[:10]:  # Show first 10 errors
+            st.text(err)
 
 # Separate signals
 intraday_buys = [r for r in results if 'BUY' in r['intraday_signal']]
@@ -293,7 +328,8 @@ longer_buys.sort(key=lambda x: x['longer_score'], reverse=True)
 longer_sells.sort(key=lambda x: x['longer_score'], reverse=True)
 
 # Display results
-st.success(f"✅ Scan completed at {datetime.now().strftime('%H:%M:%S')}")
+if st.session_state.last_scan_time:
+    st.success(f"✅ Scan completed at {st.session_state.last_scan_time.strftime('%H:%M:%S')}")
 
 # Metrics
 col1, col2, col3, col4 = st.columns(4)
