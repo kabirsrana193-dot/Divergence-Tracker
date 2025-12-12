@@ -132,16 +132,27 @@ def detect_bearish_divergence(data, lookback=50):
 def analyze_single_timeframe(symbol, period, interval):
     """Analyze stock for one timeframe"""
     try:
+        import time
         stock = yf.Ticker(symbol)
-        data = stock.history(period=period, interval=interval)
         
-        if len(data) < 30:  # Reduced minimum data requirement
+        # Try multiple times with delay
+        for attempt in range(3):
+            try:
+                data = stock.history(period=period, interval=interval, prepost=False, actions=False)
+                if data is not None and not data.empty and len(data) >= 30:
+                    break
+                time.sleep(1)
+            except:
+                time.sleep(1)
+                continue
+        
+        if data is None or data.empty or len(data) < 30:
             return None
         
         data['RSI'] = calculate_rsi(data)
         data = data.dropna()
         
-        if len(data) < 20:  # Check again after dropna
+        if len(data) < 20:
             return None
         
         bullish_div = detect_bullish_divergence(data)
@@ -159,6 +170,7 @@ def analyze_single_timeframe(symbol, period, interval):
         
     except Exception as e:
         return None
+        # Clean
 
 def analyze_stock_combined(symbol, progress_bar=None, status_text=None):
     """Analyze stock across multiple timeframes"""
@@ -275,35 +287,56 @@ with st.sidebar:
         if st.button("Test This Stock"):
             test_sym = test_symbol + '.NS'
             st.write("### Testing", test_symbol)
+            st.write(f"Full symbol: {test_sym}")
+            
+            # Test basic connection first
+            try:
+                stock = yf.Ticker(test_sym)
+                info = stock.info
+                st.write(f"✅ Connection OK - {info.get('longName', 'N/A')}")
+            except Exception as e:
+                st.write(f"❌ Connection Error: {str(e)}")
             
             # Test each timeframe
             for period, interval, name in [('5d', '15m', '15min'), ('1mo', '1h', '1hour'), 
                                             ('5d', '1d', '5d daily'), ('3mo', '1d', '3mo daily')]:
-                st.write(f"**{name}:**")
+                st.write(f"**{name}:** (period={period}, interval={interval})")
                 try:
                     stock = yf.Ticker(test_sym)
                     data = stock.history(period=period, interval=interval)
-                    st.write(f"- Data points: {len(data)}")
                     
-                    if len(data) >= 30:
-                        data['RSI'] = calculate_rsi(data)
-                        data = data.dropna()
-                        st.write(f"- After RSI calc: {len(data)} points")
-                        st.write(f"- Current RSI: {data['RSI'].iloc[-1]:.2f}")
+                    st.write(f"- Raw data type: {type(data)}")
+                    st.write(f"- Is empty: {data.empty if hasattr(data, 'empty') else 'N/A'}")
+                    st.write(f"- Data points: {len(data) if data is not None else 0}")
+                    
+                    if data is not None and not data.empty and len(data) > 0:
+                        st.write(f"- Columns: {list(data.columns)}")
+                        st.write(f"- Date range: {data.index[0]} to {data.index[-1]}")
+                        st.write(f"- Last close: ₹{data['Close'].iloc[-1]:.2f}")
                         
-                        bullish = detect_bullish_divergence(data)
-                        bearish = detect_bearish_divergence(data)
-                        st.write(f"- Bullish divs: {len(bullish)}")
-                        st.write(f"- Bearish divs: {len(bearish)}")
-                        
-                        # Show peaks/troughs
-                        pp, pt, rp, rt = find_peaks_troughs(data)
-                        st.write(f"- Price peaks: {len(pp)}, Price troughs: {len(pt)}")
-                        st.write(f"- RSI peaks: {len(rp)}, RSI troughs: {len(rt)}")
+                        if len(data) >= 30:
+                            data['RSI'] = calculate_rsi(data)
+                            data = data.dropna()
+                            st.write(f"- After RSI calc: {len(data)} points")
+                            st.write(f"- Current RSI: {data['RSI'].iloc[-1]:.2f}")
+                            
+                            bullish = detect_bullish_divergence(data)
+                            bearish = detect_bearish_divergence(data)
+                            st.write(f"- Bullish divs: {len(bullish)}")
+                            st.write(f"- Bearish divs: {len(bearish)}")
+                            
+                            # Show peaks/troughs
+                            pp, pt, rp, rt = find_peaks_troughs(data)
+                            st.write(f"- Price peaks: {len(pp)}, Price troughs: {len(pt)}")
+                            st.write(f"- RSI peaks: {len(rp)}, RSI troughs: {len(rt)}")
+                        else:
+                            st.write("⚠️ Not enough data for analysis")
                     else:
-                        st.write("❌ Not enough data")
+                        st.write("❌ No data returned")
                 except Exception as e:
                     st.write(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.write(traceback.format_exc())
                 st.write("---")
 
 col1, col2, col3 = st.columns([2, 2, 1])
