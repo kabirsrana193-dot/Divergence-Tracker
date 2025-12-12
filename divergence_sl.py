@@ -134,31 +134,38 @@ def detect_bearish_divergence(data, lookback=50):
 def analyze_single_timeframe(symbol, period, interval):
     """Analyze stock for one timeframe"""
     try:
-        # Add random delay to avoid rate limiting
-        time.sleep(random.uniform(0.2, 0.5))
+        # Use yf.download instead of Ticker.history - more reliable
+        time.sleep(random.uniform(0.1, 0.3))
         
-        stock = yf.Ticker(symbol)
+        # Map period to start/end dates for download
+        end_date = datetime.now()
+        if period == '5d':
+            start_date = end_date - pd.Timedelta(days=7)
+        elif period == '1mo':
+            start_date = end_date - pd.Timedelta(days=35)
+        elif period == '3mo':
+            start_date = end_date - pd.Timedelta(days=100)
+        else:
+            start_date = end_date - pd.Timedelta(days=7)
         
-        # Retry logic for rate limiting
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                data = stock.history(period=period, interval=interval, prepost=False, actions=False)
-                if data is not None and not data.empty and len(data) >= 30:
-                    break
-                time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
-            except Exception as e:
-                if "429" in str(e) or "Too Many Requests" in str(e):
-                    if attempt < max_retries - 1:
-                        time.sleep(5 * (attempt + 1))  # Wait longer on rate limit
-                        continue
-                    else:
-                        return None
-                else:
-                    return None
+        # Download data - suppress output
+        data = yf.download(
+            symbol, 
+            start=start_date, 
+            end=end_date, 
+            interval=interval,
+            progress=False,
+            show_errors=False,
+            prepost=False,
+            auto_adjust=True
+        )
         
         if data is None or data.empty or len(data) < 30:
             return None
+        
+        # yf.download returns MultiIndex columns, flatten it
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
         
         data['RSI'] = calculate_rsi(data)
         data = data.dropna()
@@ -196,10 +203,16 @@ def analyze_stock_combined(symbol, progress_bar=None, status_text=None):
     tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
     tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
     
-    # Get current price
+    # Get current price using download
     try:
-        stock = yf.Ticker(symbol)
-        current_price = stock.history(period='1d')['Close'].iloc[-1]
+        price_data = yf.download(symbol, period='1d', progress=False, show_errors=False)
+        if not price_data.empty:
+            if isinstance(price_data.columns, pd.MultiIndex):
+                current_price = price_data['Close'].iloc[-1].values[0]
+            else:
+                current_price = price_data['Close'].iloc[-1]
+        else:
+            current_price = 0
     except:
         current_price = 0
     
