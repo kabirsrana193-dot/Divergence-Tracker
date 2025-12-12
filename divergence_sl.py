@@ -266,6 +266,46 @@ def get_signal_color(signal):
 st.title("📈 Nifty 50 RSI Divergence Scanner")
 st.markdown("**Real-time divergence analysis across multiple timeframes**")
 
+# Debug mode
+with st.sidebar:
+    st.header("Settings")
+    debug_mode = st.checkbox("🐛 Debug Mode", value=False)
+    if debug_mode:
+        test_symbol = st.selectbox("Test Single Stock", [s.replace('.NS', '') for s in NIFTY_50_SYMBOLS])
+        if st.button("Test This Stock"):
+            test_sym = test_symbol + '.NS'
+            st.write("### Testing", test_symbol)
+            
+            # Test each timeframe
+            for period, interval, name in [('5d', '15m', '15min'), ('1mo', '1h', '1hour'), 
+                                            ('5d', '1d', '5d daily'), ('3mo', '1d', '3mo daily')]:
+                st.write(f"**{name}:**")
+                try:
+                    stock = yf.Ticker(test_sym)
+                    data = stock.history(period=period, interval=interval)
+                    st.write(f"- Data points: {len(data)}")
+                    
+                    if len(data) >= 30:
+                        data['RSI'] = calculate_rsi(data)
+                        data = data.dropna()
+                        st.write(f"- After RSI calc: {len(data)} points")
+                        st.write(f"- Current RSI: {data['RSI'].iloc[-1]:.2f}")
+                        
+                        bullish = detect_bullish_divergence(data)
+                        bearish = detect_bearish_divergence(data)
+                        st.write(f"- Bullish divs: {len(bullish)}")
+                        st.write(f"- Bearish divs: {len(bearish)}")
+                        
+                        # Show peaks/troughs
+                        pp, pt, rp, rt = find_peaks_troughs(data)
+                        st.write(f"- Price peaks: {len(pp)}, Price troughs: {len(pt)}")
+                        st.write(f"- RSI peaks: {len(rp)}, RSI troughs: {len(rt)}")
+                    else:
+                        st.write("❌ Not enough data")
+                except Exception as e:
+                    st.write(f"❌ Error: {str(e)}")
+                st.write("---")
+
 col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
     st.markdown("**Intraday:** 15-min + 1-hour")
