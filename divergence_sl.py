@@ -6,7 +6,11 @@ from scipy.signal import argrelextrema
 from datetime import datetime
 import warnings
 import time
+import requests
 warnings.filterwarnings('ignore')
+
+# Configure yfinance to use custom headers
+yf.pdr_override()
 
 # Page config
 st.set_page_config(
@@ -130,27 +134,38 @@ def detect_bearish_divergence(data, lookback=30):
     return divergences
 
 def fetch_data_with_retry(symbol, period, interval, max_retries=3):
-    """Fetch data with retry logic"""
+    """Fetch data with retry logic and custom headers"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
     for attempt in range(max_retries):
         try:
-            stock = yf.Ticker(symbol)
+            # Create session with custom headers
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            stock = yf.Ticker(symbol, session=session)
             data = stock.history(period=period, interval=interval)
             
             # Validate data
             if data is None or len(data) == 0:
-                raise ValueError("Empty data returned")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                return None
             
             if 'Close' not in data.columns:
-                raise ValueError("Close column missing")
+                return None
             
             return data
             
         except Exception as e:
             if attempt < max_retries - 1:
-                time.sleep(0.5)  # Wait before retry
+                time.sleep(1)
                 continue
             else:
-                raise e
+                return None
     
     return None
 
@@ -191,20 +206,24 @@ def analyze_single_timeframe(symbol, period, interval):
 def analyze_stock_combined(symbol):
     """Analyze stock across multiple timeframes"""
     try:
-        # Add small delay to avoid rate limiting
-        time.sleep(0.1)
+        # Add delay to avoid rate limiting
+        time.sleep(0.3)
         
         # Intraday: 15min + 1hour
         tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
+        time.sleep(0.2)
         tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
         
         # Longer-term: daily 5d + daily 3mo
+        time.sleep(0.2)
         tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
+        time.sleep(0.2)
         tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
         
         # Get current price with retry
         current_price = 0
         try:
+            time.sleep(0.2)
             data = fetch_data_with_retry(symbol, '1d', '1d')
             if data is not None and len(data) > 0:
                 current_price = data['Close'].iloc[-1]
@@ -321,6 +340,8 @@ st.divider()
 
 # Run scan if no results
 if st.session_state.scan_results is None:
+    st.warning("⚠️ Scanning will take 3-5 minutes due to rate limiting. Please wait...")
+    
     with st.spinner("Scanning Nifty 50 stocks..."):
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -366,7 +387,7 @@ if st.session_state.scan_stats:
     st.divider()
 
 # Display errors if any
-if st.session_state.errors:
+if st.session_state.errors and len(st.session_state.errors) > 0:
     with st.expander(f"⚠️ Debug Info - {len(st.session_state.errors)} Errors"):
         for err in st.session_state.errors[:20]:
             st.text(err)
@@ -459,4 +480,4 @@ with tab2:
 
 st.divider()
 st.caption("💡 Tip: Scores 80+ indicate very strong setups with agreement across multiple timeframes")
-st.caption("⚙️ Using retry logic and delays to handle Yahoo Finance rate limiting")
+st.caption("⏱️ Note: Full scan takes 3-5 minutes to avoid Yahoo Finance rate limits")
