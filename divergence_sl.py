@@ -21,7 +21,7 @@ NIFTY_50_SYMBOLS = [
     'LT.NS', 'AXISBANK.NS', 'BAJFINANCE.NS', 'ASIANPAINT.NS', 'MARUTI.NS',
     'HCLTECH.NS', 'SUNPHARMA.NS', 'TITAN.NS', 'ULTRACEMCO.NS', 'NESTLEIND.NS',
     'WIPRO.NS', 'ONGC.NS', 'NTPC.NS', 'POWERGRID.NS', 'M&M.NS',
-    'TECHM.NS', 'TMPV.NS', 'BAJAJFINSV.NS', 'ADANIENT.NS', 'ADANIPORTS.NS',
+    'TECHM.NS', 'TATAMOTORS.NS', 'BAJAJFINSV.NS', 'ADANIENT.NS', 'ADANIPORTS.NS',
     'COALINDIA.NS', 'DIVISLAB.NS', 'INDUSINDBK.NS', 'TATASTEEL.NS', 'DRREDDY.NS',
     'JSWSTEEL.NS', 'APOLLOHOSP.NS', 'CIPLA.NS', 'EICHERMOT.NS', 'HINDALCO.NS',
     'HEROMOTOCO.NS', 'GRASIM.NS', 'BRITANNIA.NS', 'BPCL.NS', 'SBILIFE.NS',
@@ -78,14 +78,14 @@ def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
     score += 20
     return min(score, 100)
 
-def detect_bullish_divergence(data, lookback=30):
-    """Detect bullish divergence"""
+def detect_bullish_divergence(data, lookback=50):
+    """Detect bullish divergence with extended lookback"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
     
     if len(price_troughs) >= 2 and len(rsi_troughs) >= 2:
-        recent_price_troughs = [i for i in price_troughs if i >= len(data) - lookback]
-        recent_rsi_troughs = [i for i in rsi_troughs if i >= len(data) - lookback]
+        recent_price_troughs = [i for i in price_troughs if i >= max(0, len(data) - lookback)]
+        recent_rsi_troughs = [i for i in rsi_troughs if i >= max(0, len(data) - lookback)]
         
         if len(recent_price_troughs) >= 2 and len(recent_rsi_troughs) >= 2:
             pt1, pt2 = recent_price_troughs[-2], recent_price_troughs[-1]
@@ -103,14 +103,14 @@ def detect_bullish_divergence(data, lookback=30):
     
     return divergences
 
-def detect_bearish_divergence(data, lookback=30):
-    """Detect bearish divergence"""
+def detect_bearish_divergence(data, lookback=50):
+    """Detect bearish divergence with extended lookback"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
     
     if len(price_peaks) >= 2 and len(rsi_peaks) >= 2:
-        recent_price_peaks = [i for i in price_peaks if i >= len(data) - lookback]
-        recent_rsi_peaks = [i for i in rsi_peaks if i >= len(data) - lookback]
+        recent_price_peaks = [i for i in price_peaks if i >= max(0, len(data) - lookback)]
+        recent_rsi_peaks = [i for i in rsi_peaks if i >= max(0, len(data) - lookback)]
         
         if len(recent_price_peaks) >= 2 and len(recent_rsi_peaks) >= 2:
             pp1, pp2 = recent_price_peaks[-2], recent_price_peaks[-1]
