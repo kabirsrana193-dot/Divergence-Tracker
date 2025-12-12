@@ -48,6 +48,8 @@ def find_peaks_troughs(data, order=5):
 def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
     """Calculate divergence strength score"""
     score = 0
+    
+    # Price change magnitude
     price_change_pct = abs((price_2 - price_1) / price_1 * 100)
     if price_change_pct > 5:
         score += 30
@@ -56,6 +58,7 @@ def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
     elif price_change_pct > 1:
         score += 10
     
+    # RSI divergence magnitude
     rsi_divergence = abs(rsi_2 - rsi_1)
     if rsi_divergence > 15:
         score += 30
@@ -64,6 +67,7 @@ def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
     elif rsi_divergence > 5:
         score += 10
     
+    # RSI extremes bonus
     if div_type == 'Bullish':
         if rsi_2 < 30:
             score += 20
@@ -75,11 +79,12 @@ def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
         elif rsi_2 > 60:
             score += 10
     
+    # Base score
     score += 20
     return min(score, 100)
 
 def detect_bullish_divergence(data, lookback=50):
-    """Detect bullish divergence with extended lookback"""
+    """Detect bullish divergence"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
     
@@ -91,6 +96,7 @@ def detect_bullish_divergence(data, lookback=50):
             pt1, pt2 = recent_price_troughs[-2], recent_price_troughs[-1]
             rt1, rt2 = recent_rsi_troughs[-2], recent_rsi_troughs[-1]
             
+            # Price making lower low, RSI making higher low
             if (data['Close'].iloc[pt2] < data['Close'].iloc[pt1] and 
                 data['RSI'].iloc[rt2] > data['RSI'].iloc[rt1]):
                 
@@ -104,7 +110,7 @@ def detect_bullish_divergence(data, lookback=50):
     return divergences
 
 def detect_bearish_divergence(data, lookback=50):
-    """Detect bearish divergence with extended lookback"""
+    """Detect bearish divergence"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
     
@@ -116,6 +122,7 @@ def detect_bearish_divergence(data, lookback=50):
             pp1, pp2 = recent_price_peaks[-2], recent_price_peaks[-1]
             rp1, rp2 = recent_rsi_peaks[-2], recent_rsi_peaks[-1]
             
+            # Price making higher high, RSI making lower high
             if (data['Close'].iloc[pp2] > data['Close'].iloc[pp1] and 
                 data['RSI'].iloc[rp2] < data['RSI'].iloc[rp1]):
                 
@@ -129,17 +136,19 @@ def detect_bearish_divergence(data, lookback=50):
     return divergences
 
 def analyze_single_timeframe(symbol, period, interval):
-    """Analyze stock for one timeframe - EXACTLY like Colab"""
+    """Analyze stock for one timeframe"""
     try:
         stock = yf.Ticker(symbol)
         data = stock.history(period=period, interval=interval)
         
-        if len(data) < 50:
+        if len(data) < 30:
             return None
         
+        # Calculate RSI
         data['RSI'] = calculate_rsi(data)
         data = data.dropna()
         
+        # Detect divergences
         bullish_div = detect_bullish_divergence(data)
         bearish_div = detect_bearish_divergence(data)
         
@@ -156,15 +165,14 @@ def analyze_single_timeframe(symbol, period, interval):
     except Exception as e:
         return None
 
-def analyze_stock_combined(symbol):
-    """Analyze stock across multiple timeframes - EXACTLY like Colab"""
-    # Intraday: 15min + 1hour
-    tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
-    tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
+def analyze_stock(symbol):
+    """Analyze stock across 2 timeframes: 15m (1d) and 1h (5d)"""
     
-    # Longer-term: daily 5d + daily 3mo
-    tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
-    tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
+    # 15-minute for 1 day
+    tf_15m = analyze_single_timeframe(symbol, '1d', '15m')
+    
+    # 1-hour for 5 days
+    tf_1h = analyze_single_timeframe(symbol, '5d', '1h')
     
     # Get current price
     try:
@@ -173,90 +181,64 @@ def analyze_stock_combined(symbol):
     except:
         current_price = 0
     
-    # Calculate INTRADAY score
-    intraday_score = 0
-    intraday_signal = "NEUTRAL"
-    intraday_details = []
+    # Calculate combined score
+    score = 0
+    signal = "NEUTRAL"
+    details = []
     
     if tf_15m and tf_1h:
+        # Check for bullish signals
         if tf_15m['has_bullish'] or tf_1h['has_bullish']:
-            intraday_score = (tf_15m['bullish_strength'] + tf_1h['bullish_strength']) / 2
+            score = (tf_15m['bullish_strength'] + tf_1h['bullish_strength']) / 2
             
             if tf_15m['has_bullish'] and tf_1h['has_bullish']:
-                intraday_score += 20
-                intraday_signal = "STRONG BUY"
+                score += 20  # Bonus for both timeframes agreeing
+                signal = "STRONG BUY"
             else:
-                intraday_signal = "BUY"
-                
-            intraday_details.append(f"15m: {tf_15m['bullish_strength']:.0f}" if tf_15m['has_bullish'] else "15m: -")
-            intraday_details.append(f"1h: {tf_1h['bullish_strength']:.0f}" if tf_1h['has_bullish'] else "1h: -")
+                signal = "BUY"
+            
+            if tf_15m['has_bullish']:
+                details.append(f"15m: {tf_15m['bullish_strength']:.0f}")
+            if tf_1h['has_bullish']:
+                details.append(f"1h: {tf_1h['bullish_strength']:.0f}")
         
+        # Check for bearish signals
         elif tf_15m['has_bearish'] or tf_1h['has_bearish']:
-            intraday_score = (tf_15m['bearish_strength'] + tf_1h['bearish_strength']) / 2
+            score = (tf_15m['bearish_strength'] + tf_1h['bearish_strength']) / 2
             
             if tf_15m['has_bearish'] and tf_1h['has_bearish']:
-                intraday_score += 20
-                intraday_signal = "STRONG SELL"
+                score += 20  # Bonus for both timeframes agreeing
+                signal = "STRONG SELL"
             else:
-                intraday_signal = "SELL"
-                
-            intraday_details.append(f"15m: {tf_15m['bearish_strength']:.0f}" if tf_15m['has_bearish'] else "15m: -")
-            intraday_details.append(f"1h: {tf_1h['bearish_strength']:.0f}" if tf_1h['has_bearish'] else "1h: -")
-    
-    # Calculate LONGER-TERM score
-    longer_score = 0
-    longer_signal = "NEUTRAL"
-    longer_details = []
-    
-    if tf_5d and tf_3mo:
-        if tf_5d['has_bullish'] or tf_3mo['has_bullish']:
-            longer_score = (tf_5d['bullish_strength'] + tf_3mo['bullish_strength']) / 2
+                signal = "SELL"
             
-            if tf_5d['has_bullish'] and tf_3mo['has_bullish']:
-                longer_score += 20
-                longer_signal = "STRONG BUY"
-            else:
-                longer_signal = "BUY"
-                
-            longer_details.append(f"5d: {tf_5d['bullish_strength']:.0f}" if tf_5d['has_bullish'] else "5d: -")
-            longer_details.append(f"3mo: {tf_3mo['bullish_strength']:.0f}" if tf_3mo['has_bullish'] else "3mo: -")
-        
-        elif tf_5d['has_bearish'] or tf_3mo['has_bearish']:
-            longer_score = (tf_5d['bearish_strength'] + tf_3mo['bearish_strength']) / 2
-            
-            if tf_5d['has_bearish'] and tf_3mo['has_bearish']:
-                longer_score += 20
-                longer_signal = "STRONG SELL"
-            else:
-                longer_signal = "SELL"
-                
-            longer_details.append(f"5d: {tf_5d['bearish_strength']:.0f}" if tf_5d['has_bearish'] else "5d: -")
-            longer_details.append(f"3mo: {tf_3mo['bearish_strength']:.0f}" if tf_3mo['has_bearish'] else "3mo: -")
+            if tf_15m['has_bearish']:
+                details.append(f"15m: {tf_15m['bearish_strength']:.0f}")
+            if tf_1h['has_bearish']:
+                details.append(f"1h: {tf_1h['bearish_strength']:.0f}")
     
-    if intraday_signal != "NEUTRAL" or longer_signal != "NEUTRAL":
+    # Only return stocks with signals
+    if signal != "NEUTRAL":
         return {
             'symbol': symbol.replace('.NS', ''),
             'price': current_price,
-            'intraday_score': min(intraday_score, 100),
-            'intraday_signal': intraday_signal,
-            'intraday_details': ', '.join(intraday_details),
-            'longer_score': min(longer_score, 100),
-            'longer_signal': longer_signal,
-            'longer_details': ', '.join(longer_details)
+            'score': min(score, 100),
+            'signal': signal,
+            'details': ', '.join(details) if details else '-',
+            'rsi_15m': tf_15m['current_rsi'] if tf_15m else None,
+            'rsi_1h': tf_1h['current_rsi'] if tf_1h else None
         }
     
     return None
 
 # Main App
 st.title("📈 Nifty 50 RSI Divergence Scanner")
-st.markdown("**Real-time divergence analysis across multiple timeframes**")
+st.markdown("**Scanning 15-min (1 day) + 1-hour (5 days) timeframes**")
 
-col1, col2, col3 = st.columns([2, 2, 1])
+col1, col2 = st.columns([3, 1])
 with col1:
-    st.markdown("**Intraday:** 15-min + 1-hour")
+    st.markdown("🔍 **Timeframes:** 15-minute interval (1 day) + 1-hour interval (5 days)")
 with col2:
-    st.markdown("**Longer-term:** Daily 5d + 3mo")
-with col3:
     if st.button("🔄 Scan Now", type="primary", use_container_width=True):
         st.cache_data.clear()
 
@@ -272,7 +254,7 @@ with st.spinner("Scanning Nifty 50 stocks..."):
     
     for i, symbol in enumerate(NIFTY_50_SYMBOLS):
         status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
-        result = analyze_stock_combined(symbol)
+        result = analyze_stock(symbol)
         if result:
             results.append(result)
         progress_bar.progress((i + 1) / total)
@@ -280,90 +262,54 @@ with st.spinner("Scanning Nifty 50 stocks..."):
     progress_bar.empty()
     status_text.empty()
 
-# Separate signals
-intraday_buys = [r for r in results if 'BUY' in r['intraday_signal']]
-intraday_sells = [r for r in results if 'SELL' in r['intraday_signal']]
-longer_buys = [r for r in results if 'BUY' in r['longer_signal']]
-longer_sells = [r for r in results if 'SELL' in r['longer_signal']]
+# Separate BUY and SELL signals
+buy_signals = [r for r in results if 'BUY' in r['signal']]
+sell_signals = [r for r in results if 'SELL' in r['signal']]
 
 # Sort by score
-intraday_buys.sort(key=lambda x: x['intraday_score'], reverse=True)
-intraday_sells.sort(key=lambda x: x['intraday_score'], reverse=True)
-longer_buys.sort(key=lambda x: x['longer_score'], reverse=True)
-longer_sells.sort(key=lambda x: x['longer_score'], reverse=True)
+buy_signals.sort(key=lambda x: x['score'], reverse=True)
+sell_signals.sort(key=lambda x: x['score'], reverse=True)
 
 # Display results
 st.success(f"✅ Scan completed at {datetime.now().strftime('%H:%M:%S')}")
 
 # Metrics
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Intraday BUYs", len(intraday_buys))
-col2.metric("Intraday SELLs", len(intraday_sells))
-col3.metric("Longer-term BUYs", len(longer_buys))
-col4.metric("Longer-term SELLs", len(longer_sells))
+col1, col2, col3 = st.columns(3)
+col1.metric("🟢 BUY Signals", len(buy_signals))
+col2.metric("🔴 SELL Signals", len(sell_signals))
+col3.metric("📊 Total Signals", len(results))
 
 st.divider()
 
-# Tabs for different views
-tab1, tab2 = st.tabs(["📍 Intraday Signals", "📈 Longer-term Signals"])
+# Display tables side by side
+col_left, col_right = st.columns(2)
 
-with tab1:
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        st.subheader("🟢 BUY Signals")
-        if intraday_buys:
-            df_buy = pd.DataFrame(intraday_buys)
-            df_buy['Rank'] = range(1, len(df_buy) + 1)
-            df_buy = df_buy[['Rank', 'symbol', 'intraday_score', 'intraday_signal', 'price', 'intraday_details']]
-            df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
-            df_buy['Score'] = df_buy['Score'].round(1)
-            df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
-            st.dataframe(df_buy, use_container_width=True, hide_index=True)
-        else:
-            st.info("No intraday BUY signals detected")
-    
-    with col_right:
-        st.subheader("🔴 SELL Signals")
-        if intraday_sells:
-            df_sell = pd.DataFrame(intraday_sells)
-            df_sell['Rank'] = range(1, len(df_sell) + 1)
-            df_sell = df_sell[['Rank', 'symbol', 'intraday_score', 'intraday_signal', 'price', 'intraday_details']]
-            df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
-            df_sell['Score'] = df_sell['Score'].round(1)
-            df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
-            st.dataframe(df_sell, use_container_width=True, hide_index=True)
-        else:
-            st.info("No intraday SELL signals detected")
+with col_left:
+    st.subheader("🟢 BUY Signals")
+    if buy_signals:
+        df_buy = pd.DataFrame(buy_signals)
+        df_buy['Rank'] = range(1, len(df_buy) + 1)
+        df_buy = df_buy[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
+        df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
+        df_buy['Score'] = df_buy['Score'].round(1)
+        df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
+        st.dataframe(df_buy, use_container_width=True, hide_index=True)
+    else:
+        st.info("No BUY signals detected")
 
-with tab2:
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        st.subheader("🟢 BUY Signals")
-        if longer_buys:
-            df_buy = pd.DataFrame(longer_buys)
-            df_buy['Rank'] = range(1, len(df_buy) + 1)
-            df_buy = df_buy[['Rank', 'symbol', 'longer_score', 'longer_signal', 'price', 'longer_details']]
-            df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
-            df_buy['Score'] = df_buy['Score'].round(1)
-            df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
-            st.dataframe(df_buy, use_container_width=True, hide_index=True)
-        else:
-            st.info("No longer-term BUY signals detected")
-    
-    with col_right:
-        st.subheader("🔴 SELL Signals")
-        if longer_sells:
-            df_sell = pd.DataFrame(longer_sells)
-            df_sell['Rank'] = range(1, len(df_sell) + 1)
-            df_sell = df_sell[['Rank', 'symbol', 'longer_score', 'longer_signal', 'price', 'longer_details']]
-            df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
-            df_sell['Score'] = df_sell['Score'].round(1)
-            df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
-            st.dataframe(df_sell, use_container_width=True, hide_index=True)
-        else:
-            st.info("No longer-term SELL signals detected")
+with col_right:
+    st.subheader("🔴 SELL Signals")
+    if sell_signals:
+        df_sell = pd.DataFrame(sell_signals)
+        df_sell['Rank'] = range(1, len(df_sell) + 1)
+        df_sell = df_sell[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
+        df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
+        df_sell['Score'] = df_sell['Score'].round(1)
+        df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
+        st.dataframe(df_sell, use_container_width=True, hide_index=True)
+    else:
+        st.info("No SELL signals detected")
 
 st.divider()
-st.caption("💡 Tip: Scores 80+ indicate very strong setups with agreement across multiple timeframes")
+st.caption("💡 **Score Guide:** 80+ = Very Strong | 60-79 = Strong | 40-59 = Moderate | Below 40 = Weak")
+st.caption("📌 **Signal Types:** STRONG BUY/SELL = Both timeframes agree | BUY/SELL = One timeframe shows divergence")
