@@ -170,7 +170,7 @@ def analyze_stock_combined(symbol):
         tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
         
         # Longer-term: daily 5d + daily 3mo
-        tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
+        tf_5d = analyze_single_timeframe(symbol, '1mo', '1d')
         tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
         
         # Get current price
