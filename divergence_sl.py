@@ -5,8 +5,6 @@ import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
 import warnings
-import time
-import random
 warnings.filterwarnings('ignore')
 
 # Page config
@@ -39,7 +37,7 @@ def calculate_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def find_peaks_troughs(data, order=3):
+def find_peaks_troughs(data, order=5):
     """Find local peaks and troughs"""
     price_peaks = argrelextrema(data['Close'].values, np.greater, order=order)[0]
     price_troughs = argrelextrema(data['Close'].values, np.less, order=order)[0]
@@ -80,7 +78,7 @@ def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
     score += 20
     return min(score, 100)
 
-def detect_bullish_divergence(data, lookback=50):
+def detect_bullish_divergence(data, lookback=30):
     """Detect bullish divergence"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
@@ -105,7 +103,7 @@ def detect_bullish_divergence(data, lookback=50):
     
     return divergences
 
-def detect_bearish_divergence(data, lookback=50):
+def detect_bearish_divergence(data, lookback=30):
     """Detect bearish divergence"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
@@ -130,48 +128,17 @@ def detect_bearish_divergence(data, lookback=50):
     
     return divergences
 
-@st.cache_data(ttl=600)  # Cache for 10 minutes to reduce requests
 def analyze_single_timeframe(symbol, period, interval):
-    """Analyze stock for one timeframe"""
+    """Analyze stock for one timeframe - EXACTLY like Colab"""
     try:
-        # Use yf.download instead of Ticker.history - more reliable
-        time.sleep(random.uniform(0.1, 0.3))
+        stock = yf.Ticker(symbol)
+        data = stock.history(period=period, interval=interval)
         
-        # Map period to start/end dates for download
-        end_date = datetime.now()
-        if period == '5d':
-            start_date = end_date - pd.Timedelta(days=7)
-        elif period == '1mo':
-            start_date = end_date - pd.Timedelta(days=35)
-        elif period == '3mo':
-            start_date = end_date - pd.Timedelta(days=100)
-        else:
-            start_date = end_date - pd.Timedelta(days=7)
-        
-        # Download data - suppress output
-        data = yf.download(
-            symbol, 
-            start=start_date, 
-            end=end_date, 
-            interval=interval,
-            progress=False,
-            show_errors=False,
-            prepost=False,
-            auto_adjust=True
-        )
-        
-        if data is None or data.empty or len(data) < 30:
+        if len(data) < 50:
             return None
-        
-        # yf.download returns MultiIndex columns, flatten it
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
         
         data['RSI'] = calculate_rsi(data)
         data = data.dropna()
-        
-        if len(data) < 20:
-            return None
         
         bullish_div = detect_bullish_divergence(data)
         bearish_div = detect_bearish_divergence(data)
@@ -188,31 +155,21 @@ def analyze_single_timeframe(symbol, period, interval):
         
     except Exception as e:
         return None
-        # Clean
 
-def analyze_stock_combined(symbol, progress_bar=None, status_text=None):
-    """Analyze stock across multiple timeframes"""
-    if status_text:
-        status_text.text(f"Analyzing {symbol.replace('.NS', '')}...")
-    
-    # Intraday
+def analyze_stock_combined(symbol):
+    """Analyze stock across multiple timeframes - EXACTLY like Colab"""
+    # Intraday: 15min + 1hour
     tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
     tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
     
-    # Longer-term
+    # Longer-term: daily 5d + daily 3mo
     tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
     tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
     
-    # Get current price using download
+    # Get current price
     try:
-        price_data = yf.download(symbol, period='1d', progress=False, show_errors=False)
-        if not price_data.empty:
-            if isinstance(price_data.columns, pd.MultiIndex):
-                current_price = price_data['Close'].iloc[-1].values[0]
-            else:
-                current_price = price_data['Close'].iloc[-1]
-        else:
-            current_price = 0
+        stock = yf.Ticker(symbol)
+        current_price = stock.history(period='1d')['Close'].iloc[-1]
     except:
         current_price = 0
     
@@ -290,78 +247,9 @@ def analyze_stock_combined(symbol, progress_bar=None, status_text=None):
     
     return None
 
-def get_signal_color(signal):
-    """Get color for signal"""
-    if "BUY" in signal:
-        return "🟢"
-    elif "SELL" in signal:
-        return "🔴"
-    return "⚪"
-
 # Main App
 st.title("📈 Nifty 50 RSI Divergence Scanner")
 st.markdown("**Real-time divergence analysis across multiple timeframes**")
-
-# Debug mode
-with st.sidebar:
-    st.header("Settings")
-    debug_mode = st.checkbox("🐛 Debug Mode", value=False)
-    if debug_mode:
-        test_symbol = st.selectbox("Test Single Stock", [s.replace('.NS', '') for s in NIFTY_50_SYMBOLS])
-        if st.button("Test This Stock"):
-            test_sym = test_symbol + '.NS'
-            st.write("### Testing", test_symbol)
-            st.write(f"Full symbol: {test_sym}")
-            
-            # Test basic connection first
-            try:
-                stock = yf.Ticker(test_sym)
-                info = stock.info
-                st.write(f"✅ Connection OK - {info.get('longName', 'N/A')}")
-            except Exception as e:
-                st.write(f"❌ Connection Error: {str(e)}")
-            
-            # Test each timeframe
-            for period, interval, name in [('5d', '15m', '15min'), ('1mo', '1h', '1hour'), 
-                                            ('5d', '1d', '5d daily'), ('3mo', '1d', '3mo daily')]:
-                st.write(f"**{name}:** (period={period}, interval={interval})")
-                try:
-                    stock = yf.Ticker(test_sym)
-                    data = stock.history(period=period, interval=interval)
-                    
-                    st.write(f"- Raw data type: {type(data)}")
-                    st.write(f"- Is empty: {data.empty if hasattr(data, 'empty') else 'N/A'}")
-                    st.write(f"- Data points: {len(data) if data is not None else 0}")
-                    
-                    if data is not None and not data.empty and len(data) > 0:
-                        st.write(f"- Columns: {list(data.columns)}")
-                        st.write(f"- Date range: {data.index[0]} to {data.index[-1]}")
-                        st.write(f"- Last close: ₹{data['Close'].iloc[-1]:.2f}")
-                        
-                        if len(data) >= 30:
-                            data['RSI'] = calculate_rsi(data)
-                            data = data.dropna()
-                            st.write(f"- After RSI calc: {len(data)} points")
-                            st.write(f"- Current RSI: {data['RSI'].iloc[-1]:.2f}")
-                            
-                            bullish = detect_bullish_divergence(data)
-                            bearish = detect_bearish_divergence(data)
-                            st.write(f"- Bullish divs: {len(bullish)}")
-                            st.write(f"- Bearish divs: {len(bearish)}")
-                            
-                            # Show peaks/troughs
-                            pp, pt, rp, rt = find_peaks_troughs(data)
-                            st.write(f"- Price peaks: {len(pp)}, Price troughs: {len(pt)}")
-                            st.write(f"- RSI peaks: {len(rp)}, RSI troughs: {len(rt)}")
-                        else:
-                            st.write("⚠️ Not enough data for analysis")
-                    else:
-                        st.write("❌ No data returned")
-                except Exception as e:
-                    st.write(f"❌ Error: {str(e)}")
-                    import traceback
-                    st.write(traceback.format_exc())
-                st.write("---")
 
 col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
@@ -370,12 +258,12 @@ with col2:
     st.markdown("**Longer-term:** Daily 5d + 3mo")
 with col3:
     if st.button("🔄 Scan Now", type="primary", use_container_width=True):
-        st.rerun()
+        st.cache_data.clear()
 
 st.divider()
 
 # Scanning
-with st.spinner("Scanning Nifty 50 stocks... (This may take a few minutes due to rate limiting)"):
+with st.spinner("Scanning Nifty 50 stocks..."):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -383,14 +271,11 @@ with st.spinner("Scanning Nifty 50 stocks... (This may take a few minutes due to
     total = len(NIFTY_50_SYMBOLS)
     
     for i, symbol in enumerate(NIFTY_50_SYMBOLS):
-        result = analyze_stock_combined(symbol, progress_bar, status_text)
+        status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
+        result = analyze_stock_combined(symbol)
         if result:
             results.append(result)
         progress_bar.progress((i + 1) / total)
-        
-        # Add delay between stocks to avoid rate limiting
-        if i < total - 1:  # Don't delay after last stock
-            time.sleep(0.5)
     
     progress_bar.empty()
     status_text.empty()
