@@ -5,7 +5,7 @@ import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
 import warnings
-import traceback
+import time
 warnings.filterwarnings('ignore')
 
 # Page config
@@ -129,19 +129,43 @@ def detect_bearish_divergence(data, lookback=30):
     
     return divergences
 
+def fetch_data_with_retry(symbol, period, interval, max_retries=3):
+    """Fetch data with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(symbol)
+            data = stock.history(period=period, interval=interval)
+            
+            # Validate data
+            if data is None or len(data) == 0:
+                raise ValueError("Empty data returned")
+            
+            if 'Close' not in data.columns:
+                raise ValueError("Close column missing")
+            
+            return data
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(0.5)  # Wait before retry
+                continue
+            else:
+                raise e
+    
+    return None
+
 def analyze_single_timeframe(symbol, period, interval):
     """Analyze stock for one timeframe"""
     try:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period=period, interval=interval)
+        data = fetch_data_with_retry(symbol, period, interval)
         
-        if len(data) < 50:
+        if data is None or len(data) < 50:
             return None
         
         data['RSI'] = calculate_rsi(data)
         data = data.dropna()
         
-        if len(data) < 20:  # Need minimum data after dropna
+        if len(data) < 20:
             return None
         
         bullish_div = detect_bullish_divergence(data)
@@ -152,19 +176,24 @@ def analyze_single_timeframe(symbol, period, interval):
             'has_bearish': len(bearish_div) > 0,
             'bullish_strength': max([d['strength'] for d in bullish_div]) if bullish_div else 0,
             'bearish_strength': max([d['strength'] for d in bearish_div]) if bearish_div else 0,
-            'current_rsi': data['RSI'].iloc[-1]
+            'current_rsi': data['RSI'].iloc[-1],
+            'data_points': len(data)
         }
         
         return result
         
     except Exception as e:
-        # Log error for debugging
-        st.session_state.setdefault('errors', []).append(f"{symbol} ({period}/{interval}): {str(e)}")
+        error_msg = f"{symbol} ({period}/{interval}): {str(e)}"
+        if 'errors' in st.session_state:
+            st.session_state.errors.append(error_msg)
         return None
 
 def analyze_stock_combined(symbol):
     """Analyze stock across multiple timeframes"""
     try:
+        # Add small delay to avoid rate limiting
+        time.sleep(0.1)
+        
         # Intraday: 15min + 1hour
         tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
         tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
@@ -173,12 +202,14 @@ def analyze_stock_combined(symbol):
         tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
         tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
         
-        # Get current price
+        # Get current price with retry
+        current_price = 0
         try:
-            stock = yf.Ticker(symbol)
-            current_price = stock.history(period='1d')['Close'].iloc[-1]
+            data = fetch_data_with_retry(symbol, '1d', '1d')
+            if data is not None and len(data) > 0:
+                current_price = data['Close'].iloc[-1]
         except:
-            current_price = 0
+            pass
         
         # Calculate INTRADAY score
         intraday_score = 0
@@ -255,7 +286,8 @@ def analyze_stock_combined(symbol):
         return None
         
     except Exception as e:
-        st.session_state.setdefault('errors', []).append(f"{symbol}: {str(e)}")
+        if 'errors' in st.session_state:
+            st.session_state.errors.append(f"{symbol}: {str(e)}")
         return None
 
 # Initialize session state
@@ -265,6 +297,8 @@ if 'last_scan_time' not in st.session_state:
     st.session_state.last_scan_time = None
 if 'errors' not in st.session_state:
     st.session_state.errors = []
+if 'scan_stats' not in st.session_state:
+    st.session_state.scan_stats = {}
 
 # Main App
 st.title("📈 Nifty 50 RSI Divergence Scanner")
@@ -280,6 +314,7 @@ with col3:
         st.session_state.scan_results = None
         st.session_state.last_scan_time = None
         st.session_state.errors = []
+        st.session_state.scan_stats = {}
         st.rerun()
 
 st.divider()
@@ -292,12 +327,17 @@ if st.session_state.scan_results is None:
         
         results = []
         total = len(NIFTY_50_SYMBOLS)
+        successful = 0
+        failed = 0
         
         for i, symbol in enumerate(NIFTY_50_SYMBOLS):
             status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
             result = analyze_stock_combined(symbol)
             if result:
                 results.append(result)
+                successful += 1
+            else:
+                failed += 1
             progress_bar.progress((i + 1) / total)
         
         progress_bar.empty()
@@ -305,14 +345,30 @@ if st.session_state.scan_results is None:
         
         st.session_state.scan_results = results
         st.session_state.last_scan_time = datetime.now()
+        st.session_state.scan_stats = {
+            'total': total,
+            'successful': successful,
+            'failed': failed,
+            'signals_found': len(results)
+        }
 
 # Use cached results
 results = st.session_state.scan_results if st.session_state.scan_results else []
 
-# Display errors if in debug mode
+# Display scan statistics
+if st.session_state.scan_stats:
+    stats = st.session_state.scan_stats
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("📊 Stocks Scanned", stats['total'])
+    col2.metric("✅ Successful", stats['successful'])
+    col3.metric("❌ Failed", stats['failed'])
+    col4.metric("🎯 Signals Found", stats['signals_found'])
+    st.divider()
+
+# Display errors if any
 if st.session_state.errors:
-    with st.expander("⚠️ Debug Info - Errors Encountered"):
-        for err in st.session_state.errors[:10]:  # Show first 10 errors
+    with st.expander(f"⚠️ Debug Info - {len(st.session_state.errors)} Errors"):
+        for err in st.session_state.errors[:20]:
             st.text(err)
 
 # Separate signals
@@ -403,3 +459,4 @@ with tab2:
 
 st.divider()
 st.caption("💡 Tip: Scores 80+ indicate very strong setups with agreement across multiple timeframes")
+st.caption("⚙️ Using retry logic and delays to handle Yahoo Finance rate limiting")
