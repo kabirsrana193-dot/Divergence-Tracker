@@ -31,17 +31,27 @@ NIFTY_50_SYMBOLS = [
 
 @st.cache_data(ttl=1800)  # Cache for 30 minutes
 def download_stock_data(symbol, period, interval):
-    """Download stock data with caching"""
-    try:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period=period, interval=interval)
-        
-        if data is None or len(data) == 0:
-            return None
+    """Download stock data with caching and better retry logic"""
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(symbol)
+            data = stock.history(period=period, interval=interval)
             
-        return data
-    except Exception as e:
-        return None
+            if data is None or len(data) == 0:
+                if attempt < max_retries - 1:
+                    time.sleep(1.0)  # Longer wait between retries
+                    continue
+                return None
+            
+            return data
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1.0)
+                continue
+            return None
+    
+    return None
 
 def calculate_rsi(data, period=14):
     """Calculate RSI indicator"""
@@ -185,18 +195,18 @@ def analyze_stock_combined(symbol):
     try:
         # Intraday: 15min + 1hour
         tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
-        time.sleep(0.1)
+        time.sleep(0.5)
         tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
         
         # Longer-term: daily 5d + daily 3mo
-        time.sleep(0.1)
+        time.sleep(0.5)
         tf_5d = analyze_single_timeframe(symbol, '5d', '1d')
-        time.sleep(0.1)
+        time.sleep(0.5)
         tf_3mo = analyze_single_timeframe(symbol, '3mo', '1d')
         
         # Get current price
         try:
-            time.sleep(0.1)
+            time.sleep(0.5)
             data = download_stock_data(symbol, '1d', '1d')
             current_price = data['Close'].iloc[-1] if data is not None and len(data) > 0 else 0
         except:
@@ -301,7 +311,7 @@ with col1:
 with col2:
     st.markdown("**Longer-term:** Daily 5d + 3mo")
 with col3:
-    if st.button("🔄 Scan Now", type="primary", use_container_width=True):
+    if st.button("🔄 Scan Now", type="primary"):
         st.session_state.scan_results = None
         st.session_state.last_scan_time = None
         st.session_state.errors = []
@@ -313,7 +323,7 @@ st.divider()
 
 # Run scan if no results
 if st.session_state.scan_results is None:
-    st.info("🔄 Scanning stocks... This may take 2-3 minutes due to rate limiting.")
+    st.info("🔄 Scanning stocks... This may take 5-7 minutes with improved reliability.")
     
     with st.spinner("Analyzing Nifty 50 stocks..."):
         progress_bar = st.progress(0)
@@ -333,7 +343,7 @@ if st.session_state.scan_results is None:
             else:
                 failed += 1
             progress_bar.progress((i + 1) / total)
-            time.sleep(0.2)  # Delay to avoid rate limiting
+            time.sleep(0.8)  # Increased delay to avoid rate limiting
         
         progress_bar.empty()
         status_text.empty()
@@ -406,7 +416,7 @@ with tab1:
             df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
             df_buy['Score'] = df_buy['Score'].round(1)
             df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
-            st.dataframe(df_buy, use_container_width=True, hide_index=True)
+            st.dataframe(df_buy, width='stretch', hide_index=True)
         else:
             st.info("No intraday BUY signals detected")
     
@@ -419,7 +429,7 @@ with tab1:
             df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
             df_sell['Score'] = df_sell['Score'].round(1)
             df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
-            st.dataframe(df_sell, use_container_width=True, hide_index=True)
+            st.dataframe(df_sell, width='stretch', hide_index=True)
         else:
             st.info("No intraday SELL signals detected")
 
@@ -435,7 +445,7 @@ with tab2:
             df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
             df_buy['Score'] = df_buy['Score'].round(1)
             df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
-            st.dataframe(df_buy, use_container_width=True, hide_index=True)
+            st.dataframe(df_buy, width='stretch', hide_index=True)
         else:
             st.info("No longer-term BUY signals detected")
     
@@ -448,7 +458,7 @@ with tab2:
             df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
             df_sell['Score'] = df_sell['Score'].round(1)
             df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
-            st.dataframe(df_sell, use_container_width=True, hide_index=True)
+            st.dataframe(df_sell, width='stretch', hide_index=True)
         else:
             st.info("No longer-term SELL signals detected")
 
