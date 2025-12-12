@@ -5,6 +5,8 @@ import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
 import warnings
+import time
+import random
 warnings.filterwarnings('ignore')
 
 # Page config
@@ -128,23 +130,32 @@ def detect_bearish_divergence(data, lookback=50):
     
     return divergences
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=600)  # Cache for 10 minutes to reduce requests
 def analyze_single_timeframe(symbol, period, interval):
     """Analyze stock for one timeframe"""
     try:
-        import time
+        # Add random delay to avoid rate limiting
+        time.sleep(random.uniform(0.2, 0.5))
+        
         stock = yf.Ticker(symbol)
         
-        # Try multiple times with delay
-        for attempt in range(3):
+        # Retry logic for rate limiting
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
                 data = stock.history(period=period, interval=interval, prepost=False, actions=False)
                 if data is not None and not data.empty and len(data) >= 30:
                     break
-                time.sleep(1)
-            except:
-                time.sleep(1)
-                continue
+                time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+            except Exception as e:
+                if "429" in str(e) or "Too Many Requests" in str(e):
+                    if attempt < max_retries - 1:
+                        time.sleep(5 * (attempt + 1))  # Wait longer on rate limit
+                        continue
+                    else:
+                        return None
+                else:
+                    return None
         
         if data is None or data.empty or len(data) < 30:
             return None
@@ -351,7 +362,7 @@ with col3:
 st.divider()
 
 # Scanning
-with st.spinner("Scanning Nifty 50 stocks..."):
+with st.spinner("Scanning Nifty 50 stocks... (This may take a few minutes due to rate limiting)"):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -363,6 +374,10 @@ with st.spinner("Scanning Nifty 50 stocks..."):
         if result:
             results.append(result)
         progress_bar.progress((i + 1) / total)
+        
+        # Add delay between stocks to avoid rate limiting
+        if i < total - 1:  # Don't delay after last stock
+            time.sleep(0.5)
     
     progress_bar.empty()
     status_text.empty()
