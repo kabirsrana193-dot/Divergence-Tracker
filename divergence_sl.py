@@ -241,6 +241,9 @@ def analyze_stock_rsi(symbol):
 # ============================================================================
 # WILLIAMS %R FUNCTIONS
 # ============================================================================
+# ============================================================================
+# WILLIAMS %R FUNCTIONS
+# ============================================================================
 def calculate_williams_r(data, period=14):
     """Calculate Williams %R indicator"""
     highest_high = data['High'].rolling(window=period).max()
