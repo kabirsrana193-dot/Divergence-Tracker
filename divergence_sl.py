@@ -241,9 +241,6 @@ def analyze_stock_rsi(symbol):
 # ============================================================================
 # WILLIAMS %R FUNCTIONS
 # ============================================================================
-# ============================================================================
-# WILLIAMS %R FUNCTIONS
-# ============================================================================
 def calculate_williams_r(data, period=14):
     """Calculate Williams %R indicator"""
     highest_high = data['High'].rolling(window=period).max()
@@ -344,6 +341,7 @@ with col1:
     st.markdown("🔍 **RSI:** 15-min (5d) + 1-hour (1mo) | **Williams %R:** 1H (5d) + 15M (5d)")
 with col2:
     if st.button("🔄 Scan Now", type="primary", use_container_width=True):
+        st.session_state.scanned = False
         st.cache_data.clear()
         st.rerun()
 
@@ -464,10 +462,10 @@ with tab2:
     wr_results = st.session_state.get('wr_results', [])
     
     # Separate by zone type (based on 1h)
-    extreme_overbought_1h = [r for r in wr_results if r['zone_1h'] == "EXTREME OVERBOUGHT"]
-    extreme_oversold_1h = [r for r in wr_results if r['zone_1h'] == "EXTREME OVERSOLD"]
-    normal_overbought_1h = [r for r in wr_results if r['zone_1h'] == "OVERBOUGHT"]
-    normal_oversold_1h = [r for r in wr_results if r['zone_1h'] == "OVERSOLD"]
+    extreme_overbought_1h = [r for r in wr_results if r.get('zone_1h') == "EXTREME OVERBOUGHT"]
+    extreme_oversold_1h = [r for r in wr_results if r.get('zone_1h') == "EXTREME OVERSOLD"]
+    normal_overbought_1h = [r for r in wr_results if r.get('zone_1h') == "OVERBOUGHT"]
+    normal_oversold_1h = [r for r in wr_results if r.get('zone_1h') == "OVERSOLD"]
     
     # Separate by 15m zones
     extreme_overbought_15m = [r for r in wr_results if r.get('zone_15m') == "EXTREME OVERBOUGHT"]
@@ -493,8 +491,8 @@ with tab2:
         st.subheader("🎯 DOUBLE CONFIRMATION - Both 1H & 15M Extreme!")
         st.markdown("**⚡ Highest probability - Both timeframes in extreme zones**")
         
-        double_ob = [r for r in double_confirm if r['zone_1h'] == "EXTREME OVERBOUGHT"]
-        double_os = [r for r in double_confirm if r['zone_1h'] == "EXTREME OVERSOLD"]
+        double_ob = [r for r in double_confirm if r.get('zone_1h') == "EXTREME OVERBOUGHT"]
+        double_os = [r for r in double_confirm if r.get('zone_1h') == "EXTREME OVERSOLD"]
         
         col1, col2 = st.columns(2)
         
@@ -603,70 +601,68 @@ with tab2:
     st.markdown("---")
     
     # 15M EXTREME ZONES
-    st.subheader("📍 15M Extreme Zones (Reference Only)")
-    st.markdown("**15M data shown for context - Too noisy for standalone signals**")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🔴 15M EXTREME OVERBOUGHT (-5 to 0)**")
-        if extreme_overbought_15m:
-            df = pd.DataFrame(extreme_overbought_15m)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
-            df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
-            df['W%R 15M'] = df['W%R 15M'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in 15M extreme overbought zone")
-    
-    with col2:
-        st.markdown("**🟢 15M EXTREME OVERSOLD (-95 to -100)**")
-        if extreme_oversold_15m:
-            df = pd.DataFrame(extreme_oversold_15m)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
-            df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
-            df['W%R 15M'] = df['W%R 15M'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in 15M extreme oversold zone")
-    
-    st.markdown("---")
-    
-    # 15M NORMAL ZONES
-    st.subheader("📍 15M Normal Zones (Reference Only)")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🟠 15M OVERBOUGHT (-20 to -5)**")
-        if normal_overbought_15m:
-            df = pd.DataFrame(normal_overbought_15m)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
-            df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
-            df['W%R 15M'] = df['W%R 15M'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in 15M overbought zone")
-    
-    with col2:
-        st.markdown("**🟢 15M OVERSOLD (-95 to -80)**")
-        if normal_oversold_15m:
-            df = pd.DataFrame(normal_oversold_15m)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
-            df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
-            df['W%R 15M'] = df['W%R 15M'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in 15M oversold zone")
-    
-    st.caption("💡 **Williams %R:** Period=14 | 1H (primary) + 15M (confirmation)")
-    st.caption("⚡ **Double Confirmation:** Both 1H & 15M in extreme zones - highest probability")
-    st.caption("📍 **15M zones:** Reference only - look for ⚡ symbol in 1H extreme zones for best signals")
+  col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("**🔴 15M EXTREME OVERBOUGHT (-5 to 0)**")
+    if extreme_overbought_15m:
+        df = pd.DataFrame(extreme_overbought_15m)
+        df['Rank'] = range(1, len(df) + 1)
+        df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
+        df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
+        df['W%R 15M'] = df['W%R 15M'].round(2)
+        df['Price (₹)'] = df['Price (₹)'].round(2)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No stocks in 15M extreme overbought zone")
+
+with col2:
+    st.markdown("**🟢 15M EXTREME OVERSOLD (-95 to -100)**")
+    if extreme_oversold_15m:
+        df = pd.DataFrame(extreme_oversold_15m)
+        df['Rank'] = range(1, len(df) + 1)
+        df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
+        df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
+        df['W%R 15M'] = df['W%R 15M'].round(2)
+        df['Price (₹)'] = df['Price (₹)'].round(2)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No stocks in 15M extreme oversold zone")
+
+st.markdown("---")
+
+# 15M NORMAL ZONES
+st.subheader("📍 15M Normal Zones (Reference Only)")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("**🟠 15M OVERBOUGHT (-20 to -5)**")
+    if normal_overbought_15m:
+        df = pd.DataFrame(normal_overbought_15m)
+        df['Rank'] = range(1, len(df) + 1)
+        df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
+        df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
+        df['W%R 15M'] = df['W%R 15M'].round(2)
+        df['Price (₹)'] = df['Price (₹)'].round(2)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No stocks in 15M overbought zone")
+
+with col2:
+    st.markdown("**🟢 15M OVERSOLD (-95 to -80)**")
+    if normal_oversold_15m:
+        df = pd.DataFrame(normal_oversold_15m)
+        df['Rank'] = range(1, len(df) + 1)
+        df = df[['Rank', 'symbol', 'williams_r_15m', 'price']]
+        df.columns = ['Rank', 'Stock', 'W%R 15M', 'Price (₹)']
+        df['W%R 15M'] = df['W%R 15M'].round(2)
+        df['Price (₹)'] = df['Price (₹)'].round(2)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No stocks in 15M oversold zone")
+
+st.caption("💡 **Williams %R:** Period=14 | 1H (primary) + 15M (confirmation)")
+st.caption("⚡ **Double Confirmation:** Both 1H & 15M in extreme zones - highest probability")
+st.caption("📍 **15M zones:** Reference only - look for ⚡ symbol in 1H extreme zones for best signals")
+st.divider()
