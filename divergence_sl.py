@@ -451,7 +451,7 @@ with tab1:
     col2.metric("🔴 SELL", len(sell_signals))
     col3.metric("⚪ No Signal", st.session_state.get('no_signal_count', 0))
     col4.metric("❌ No Data", st.session_state.get('no_data_count', 0))
-    col5.metric("📊 Total", len(NIFTY_50_SYMBOLS))
+    col5.metric("📊 Total", len(NIFTY_200_SYMBOLS))
     
     st.markdown("---")
     
