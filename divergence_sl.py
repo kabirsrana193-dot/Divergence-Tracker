@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 
 # Page config
 st.set_page_config(
-    page_title="Nifty 50 Technical Scanner",
+    page_title="Nifty 200 Technical Scanner",
     page_icon="📈",
     layout="wide"
 )
