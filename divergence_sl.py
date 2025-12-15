@@ -393,9 +393,9 @@ if not st.session_state.scanned:
         wr_results = []
         no_signal_count = 0
         no_data_count = 0
-        total = len(NIFTY_50_SYMBOLS)
+        total = len(NIFTY_200_SYMBOLS)
         
-        for i, symbol in enumerate(NIFTY_50_SYMBOLS):
+        for i, symbol in enumerate(NIFTY_200_SYMBOLS):
             status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
             
             # RSI Divergence
