@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 
 # Page config
 st.set_page_config(
-    page_title="Nifty 50 Technical Scanner",
+    page_title="Nifty 50 RSI Divergence Scanner",
     page_icon="📈",
     layout="wide"
 )
@@ -28,9 +28,6 @@ NIFTY_50_SYMBOLS = [
     'TATACONSUM.NS', 'BAJAJ-AUTO.NS', 'LTIM.NS', 'HDFCLIFE.NS', 'SHRIRAMFIN.NS'
 ]
 
-# ============================================================================
-# RSI DIVERGENCE FUNCTIONS
-# ============================================================================
 def calculate_rsi(data, period=14):
     """Calculate RSI indicator"""
     delta = data['Close'].diff()
@@ -168,23 +165,28 @@ def analyze_single_timeframe(symbol, period, interval):
     except Exception as e:
         return None
 
-def analyze_stock_rsi(symbol):
+def analyze_stock(symbol):
     """Analyze stock across 2 timeframes: 15m (5d) and 1h (1mo)"""
     
-    # 15-minute for 5 days
+    # 15-minute for 5 days (more data for better peak detection)
     tf_15m = analyze_single_timeframe(symbol, '5d', '15m')
     
-    # 1-hour for 1 month
+    # 1-hour for 1 month (more data for better peak detection)
     tf_1h = analyze_single_timeframe(symbol, '1mo', '1h')
     
     # Check if we got data
     if tf_15m is None and tf_1h is None:
-        return None
+        return None  # No data available
     
-    # Get current price
+    # Get current price (use adjusted close when market is closed)
     try:
         stock = yf.Ticker(symbol)
-        current_price = stock.history(period='1d')['Close'].iloc[-1]
+        hist = stock.history(period='1d')
+        # Try to get adjusted close first, fallback to regular close
+        if 'Close' in hist.columns and len(hist) > 0:
+            current_price = hist['Close'].iloc[-1]
+        else:
+            current_price = 0
     except:
         current_price = 0
     
@@ -199,7 +201,7 @@ def analyze_stock_rsi(symbol):
             score = (tf_15m['bullish_strength'] + tf_1h['bullish_strength']) / 2
             
             if tf_15m['has_bullish'] and tf_1h['has_bullish']:
-                score += 20
+                score += 20  # Bonus for both timeframes agreeing
                 signal = "STRONG BUY"
             else:
                 signal = "BUY"
@@ -214,7 +216,7 @@ def analyze_stock_rsi(symbol):
             score = (tf_15m['bearish_strength'] + tf_1h['bearish_strength']) / 2
             
             if tf_15m['has_bearish'] and tf_1h['has_bearish']:
-                score += 20
+                score += 20  # Bonus for both timeframes agreeing
                 signal = "STRONG SELL"
             else:
                 signal = "SELL"
@@ -236,286 +238,101 @@ def analyze_stock_rsi(symbol):
             'rsi_1h': tf_1h['current_rsi'] if tf_1h else None
         }
     
+    # Return empty dict for "no signal but has data"
     return {}
 
-# ============================================================================
-# WILLIAMS %R FUNCTIONS
-# ============================================================================
-def calculate_williams_r(data, period=14):
-    """Calculate Williams %R indicator"""
-    highest_high = data['High'].rolling(window=period).max()
-    lowest_low = data['Low'].rolling(window=period).min()
-    williams_r = ((highest_high - data['Close']) / (highest_high - lowest_low)) * -100
-    return williams_r
-
-def analyze_williams_r(symbol):
-    """Analyze Williams %R on 1h chart"""
-    try:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period='5d', interval='1h')
-        
-        if len(data) < 20:
-            return None
-        
-        # Calculate Williams %R
-        data['WilliamsR'] = calculate_williams_r(data, period=14)
-        data = data.dropna()
-        
-        if len(data) == 0:
-            return None
-        
-        current_wr = data['WilliamsR'].iloc[-1]
-        current_price = data['Close'].iloc[-1]
-        
-        # Determine zone
-        zone = None
-        zone_type = None
-        
-        # Extreme reversal zones
-        if -5 <= current_wr <= 0:
-            zone = "EXTREME OVERBOUGHT"
-            zone_type = "extreme"
-        elif -100 <= current_wr <= -95:
-            zone = "EXTREME OVERSOLD"
-            zone_type = "extreme"
-        # Normal zones
-        elif -20 <= current_wr < -5:
-            zone = "OVERBOUGHT"
-            zone_type = "normal"
-        elif -95 < current_wr <= -80:
-            zone = "OVERSOLD"
-            zone_type = "normal"
-        
-        if zone:
-            return {
-                'symbol': symbol.replace('.NS', ''),
-                'price': current_price,
-                'williams_r': current_wr,
-                'zone': zone,
-                'zone_type': zone_type
-            }
-        
-        return None
-        
-    except Exception as e:
-        return None
-
-# ============================================================================
-# MAIN APP
-# ============================================================================
-st.title("📈 Nifty 50 Technical Scanner")
-st.markdown("**RSI Divergence + Williams %R Analysis**")
+# Main App
+st.title("📈 Nifty 50 RSI Divergence Scanner")
+st.markdown("**Scanning 15-min (5 days) + 1-hour (1 month) timeframes**")
 
 col1, col2 = st.columns([3, 1])
 with col1:
-    st.markdown("🔍 **RSI:** 15-min (5d) + 1-hour (1mo) | **Williams %R:** 1-hour (5d)")
+    st.markdown("🔍 **Timeframes:** 15-minute interval (5 days) + 1-hour interval (1 month)")
 with col2:
-    if st.button("🔄 Scan Now", type="primary", use_container_width=True):
+    if st.button("🔄 Scan Now", type="primary", width="stretch"):
         st.cache_data.clear()
-        st.rerun()
 
 st.divider()
 
-# Initialize session state
-if 'scanned' not in st.session_state:
-    st.session_state.scanned = False
-
-# Run scan
-if not st.session_state.scanned:
-    with st.spinner("Scanning Nifty 50 stocks..."):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+# Scanning
+with st.spinner("Scanning Nifty 50 stocks..."):
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    results = []
+    no_signal_count = 0
+    no_data_count = 0
+    total = len(NIFTY_50_SYMBOLS)
+    
+    for i, symbol in enumerate(NIFTY_50_SYMBOLS):
+        status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
+        result = analyze_stock(symbol)
         
-        rsi_results = []
-        wr_results = []
-        no_signal_count = 0
-        no_data_count = 0
-        total = len(NIFTY_50_SYMBOLS)
-        
-        for i, symbol in enumerate(NIFTY_50_SYMBOLS):
-            status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
+        if result is None:
+            # No data available at all
+            no_data_count += 1
+        elif result == {}:
+            # Data available but no divergence signal
+            no_signal_count += 1
+        else:
+            # Has a signal (BUY or SELL)
+            results.append(result)
             
-            # RSI Divergence
-            rsi_result = analyze_stock_rsi(symbol)
-            if rsi_result is None:
-                no_data_count += 1
-            elif rsi_result == {}:
-                no_signal_count += 1
-            else:
-                rsi_results.append(rsi_result)
-            
-            # Williams %R
-            wr_result = analyze_williams_r(symbol)
-            if wr_result:
-                wr_results.append(wr_result)
-            
-            progress_bar.progress((i + 1) / total)
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        st.session_state.rsi_results = rsi_results
-        st.session_state.wr_results = wr_results
-        st.session_state.no_signal_count = no_signal_count
-        st.session_state.no_data_count = no_data_count
-        st.session_state.scan_time = datetime.now()
-        st.session_state.scanned = True
+        progress_bar.progress((i + 1) / total)
+    
+    progress_bar.empty()
+    status_text.empty()
 
-# Display scan completion
-if st.session_state.scanned:
-    st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
+# Separate BUY and SELL signals
+buy_signals = [r for r in results if 'BUY' in r['signal']]
+sell_signals = [r for r in results if 'SELL' in r['signal']]
 
-# Tabs
-tab1, tab2 = st.tabs(["📊 RSI Divergence", "📉 Williams %R"])
+# Sort by score
+buy_signals.sort(key=lambda x: x['score'], reverse=True)
+sell_signals.sort(key=lambda x: x['score'], reverse=True)
 
-# ============================================================================
-# TAB 1: RSI DIVERGENCE
-# ============================================================================
-with tab1:
-    rsi_results = st.session_state.get('rsi_results', [])
-    
-    # Separate BUY and SELL signals
-    buy_signals = [r for r in rsi_results if 'BUY' in r['signal']]
-    sell_signals = [r for r in rsi_results if 'SELL' in r['signal']]
-    
-    # Sort by score
-    buy_signals.sort(key=lambda x: x['score'], reverse=True)
-    sell_signals.sort(key=lambda x: x['score'], reverse=True)
-    
-    # Metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("🟢 BUY", len(buy_signals))
-    col2.metric("🔴 SELL", len(sell_signals))
-    col3.metric("⚪ No Signal", st.session_state.get('no_signal_count', 0))
-    col4.metric("❌ No Data", st.session_state.get('no_data_count', 0))
-    col5.metric("📊 Total", len(NIFTY_50_SYMBOLS))
-    
-    st.markdown("---")
-    
-    # Display tables
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        st.subheader("🟢 BUY Signals")
-        if buy_signals:
-            df = pd.DataFrame(buy_signals)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
-            df.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
-            df['Score'] = df['Score'].round(1)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No BUY signals detected")
-    
-    with col_right:
-        st.subheader("🔴 SELL Signals")
-        if sell_signals:
-            df = pd.DataFrame(sell_signals)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
-            df.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
-            df['Score'] = df['Score'].round(1)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No SELL signals detected")
-    
-    st.caption("💡 **Score:** 80+ = Very Strong | 60-79 = Strong | 40-59 = Moderate")
-    st.caption("📌 **Signals:** STRONG = Both timeframes agree | Normal = One timeframe")
+# Display results
+st.success(f"✅ Scan completed at {datetime.now().strftime('%H:%M:%S')}")
 
-# ============================================================================
-# TAB 2: WILLIAMS %R
-# ============================================================================
-with tab2:
-    wr_results = st.session_state.get('wr_results', [])
-    
-    # Separate by zone type
-    extreme_overbought = [r for r in wr_results if r['zone'] == "EXTREME OVERBOUGHT"]
-    extreme_oversold = [r for r in wr_results if r['zone'] == "EXTREME OVERSOLD"]
-    normal_overbought = [r for r in wr_results if r['zone'] == "OVERBOUGHT"]
-    normal_oversold = [r for r in wr_results if r['zone'] == "OVERSOLD"]
-    
-    # Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("🔴 Extreme OB", len(extreme_overbought))
-    col2.metric("🟢 Extreme OS", len(extreme_oversold))
-    col3.metric("🟠 Overbought", len(normal_overbought))
-    col4.metric("🟢 Oversold", len(normal_oversold))
-    
-    st.markdown("---")
-    
-    # EXTREME ZONES
-    st.subheader("⚡ Extreme Reversal Zones")
-    st.markdown("**Strong bounce expected at these levels**")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🔴 EXTREME OVERBOUGHT (-5 to 0)**")
-        st.markdown("*Strong resistance - Likely bounce DOWN*")
-        if extreme_overbought:
-            df = pd.DataFrame(extreme_overbought)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r', 'price']]
-            df.columns = ['Rank', 'Stock', 'Williams %R', 'Price (₹)']
-            df['Williams %R'] = df['Williams %R'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in extreme overbought zone")
-    
-    with col2:
-        st.markdown("**🟢 EXTREME OVERSOLD (-95 to -100)**")
-        st.markdown("*Strong support - Likely bounce UP*")
-        if extreme_oversold:
-            df = pd.DataFrame(extreme_oversold)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r', 'price']]
-            df.columns = ['Rank', 'Stock', 'Williams %R', 'Price (₹)']
-            df['Williams %R'] = df['Williams %R'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in extreme oversold zone")
-    
-    st.markdown("---")
-    
-    # NORMAL ZONES
-    st.subheader("📊 Normal Overbought/Oversold Zones")
-    st.markdown("**Potential reversal areas**")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🟠 OVERBOUGHT (-20 to -5)**")
-        st.markdown("*Potential reversal down*")
-        if normal_overbought:
-            df = pd.DataFrame(normal_overbought)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r', 'price']]
-            df.columns = ['Rank', 'Stock', 'Williams %R', 'Price (₹)']
-            df['Williams %R'] = df['Williams %R'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in overbought zone")
-    
-    with col2:
-        st.markdown("**🟢 OVERSOLD (-95 to -80)**")
-        st.markdown("*Potential reversal up*")
-        if normal_oversold:
-            df = pd.DataFrame(normal_oversold)
-            df['Rank'] = range(1, len(df) + 1)
-            df = df[['Rank', 'symbol', 'williams_r', 'price']]
-            df.columns = ['Rank', 'Stock', 'Williams %R', 'Price (₹)']
-            df['Williams %R'] = df['Williams %R'].round(2)
-            df['Price (₹)'] = df['Price (₹)'].round(2)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks in oversold zone")
-    
-    st.caption("💡 **Williams %R:** Period=14 | 1-hour chart (5 days)")
-    st.caption("⚡ **Extreme zones** typically produce stronger reversals than normal zones")
+# Metrics with all counters
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("🟢 BUY Signals", len(buy_signals))
+col2.metric("🔴 SELL Signals", len(sell_signals))
+col3.metric("⚪ No Signal", no_signal_count)
+col4.metric("❌ No Data", no_data_count)
+col5.metric("📊 Total Scanned", total)
 
 st.divider()
+
+# Display tables side by side
+col_left, col_right = st.columns(2)
+
+with col_left:
+    st.subheader("🟢 BUY Signals")
+    if buy_signals:
+        df_buy = pd.DataFrame(buy_signals)
+        df_buy['Rank'] = range(1, len(df_buy) + 1)
+        df_buy = df_buy[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
+        df_buy.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
+        df_buy['Score'] = df_buy['Score'].round(1)
+        df_buy['Price (₹)'] = df_buy['Price (₹)'].round(2)
+        st.dataframe(df_buy, width="stretch", hide_index=True)
+    else:
+        st.info("No BUY signals detected")
+
+with col_right:
+    st.subheader("🔴 SELL Signals")
+    if sell_signals:
+        df_sell = pd.DataFrame(sell_signals)
+        df_sell['Rank'] = range(1, len(df_sell) + 1)
+        df_sell = df_sell[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
+        df_sell.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
+        df_sell['Score'] = df_sell['Score'].round(1)
+        df_sell['Price (₹)'] = df_sell['Price (₹)'].round(2)
+        st.dataframe(df_sell, width="stretch", hide_index=True)
+    else:
+        st.info("No SELL signals detected")
+
+st.divider()
+st.caption("💡 **Score Guide:** 80+ = Very Strong | 60-79 = Strong | 40-59 = Moderate | Below 40 = Weak")
+st.caption("📌 **Signal Types:** STRONG BUY/SELL = Both timeframes agree | BUY/SELL = One timeframe shows divergence")
