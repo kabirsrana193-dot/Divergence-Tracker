@@ -366,7 +366,7 @@ def analyze_williams_r(symbol):
 # ============================================================================
 # MAIN APP
 # ============================================================================
-st.title("📈 Nifty 50 Technical Scanner")
+st.title("📈 Nifty 200 Technical Scanner")
 st.markdown("**RSI Divergence + Williams %R Analysis**")
 
 col1, col2 = st.columns([3, 1])
