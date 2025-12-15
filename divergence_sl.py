@@ -298,37 +298,42 @@ def analyze_williams_r_single(symbol, period, interval):
 
 def analyze_williams_r(symbol):
     """Analyze Williams %R on both 1h and 15m charts"""
-    # 1-hour analysis
-    wr_1h = analyze_williams_r_single(symbol, '5d', '1h')
-    
-    # 15-minute analysis
-    wr_15m = analyze_williams_r_single(symbol, '5d', '15m')
-    
-    if not wr_1h:
+    try:
+        # 1-hour analysis
+        wr_1h = analyze_williams_r_single(symbol, '5d', '1h')
+        
+        # 15-minute analysis
+        wr_15m = analyze_williams_r_single(symbol, '5d', '15m')
+        
+        # If we don't have 1h data at all, return None
+        if not wr_1h:
+            return None
+        
+        result = {
+            'symbol': symbol.replace('.NS', ''),
+            'price': wr_1h['price'],
+            'williams_r_1h': wr_1h['williams_r'],
+            'zone_1h': wr_1h['zone'],
+            'zone_type_1h': wr_1h['zone_type'],
+            'williams_r_15m': wr_15m['williams_r'] if wr_15m else None,
+            'zone_15m': wr_15m['zone'] if wr_15m else None,
+            'zone_type_15m': wr_15m['zone_type'] if wr_15m else None,
+            'double_confirmation': False
+        }
+        
+        # Check for double confirmation (both timeframes in extreme zones)
+        if wr_15m and wr_1h['zone_type'] == 'extreme' and wr_15m['zone_type'] == 'extreme':
+            if wr_1h['zone'] == wr_15m['zone']:
+                result['double_confirmation'] = True
+        
+        # Return if 1h has ANY zone
+        if wr_1h['zone']:
+            return result
+        
         return None
-    
-    result = {
-        'symbol': symbol.replace('.NS', ''),
-        'price': wr_1h['price'],
-        'williams_r_1h': wr_1h['williams_r'],
-        'zone_1h': wr_1h['zone'],
-        'zone_type_1h': wr_1h['zone_type'],
-        'williams_r_15m': wr_15m['williams_r'] if wr_15m else None,
-        'zone_15m': wr_15m['zone'] if wr_15m else None,
-        'zone_type_15m': wr_15m['zone_type'] if wr_15m else None,
-        'double_confirmation': False
-    }
-    
-    # Check for double confirmation (both timeframes in extreme zones)
-    if wr_15m and wr_1h['zone_type'] == 'extreme' and wr_15m['zone_type'] == 'extreme':
-        if wr_1h['zone'] == wr_15m['zone']:
-            result['double_confirmation'] = True
-    
-    # Only return if 1h has a zone (15m alone doesn't matter)
-    if wr_1h['zone']:
-        return result
-    
-    return None
+    except Exception as e:
+        print(f"Error in analyze_williams_r for {symbol}: {e}")
+        return None
 
 # ============================================================================
 # MAIN APP
