@@ -298,42 +298,38 @@ def analyze_williams_r_single(symbol, period, interval):
 
 def analyze_williams_r(symbol):
     """Analyze Williams %R on both 1h and 15m charts"""
-    try:
-        # 1-hour analysis
-        wr_1h = analyze_williams_r_single(symbol, '5d', '1h')
-        
-        # 15-minute analysis
-        wr_15m = analyze_williams_r_single(symbol, '5d', '15m')
-        
-        # If we don't have 1h data at all, return None
-        if not wr_1h:
-            return None
-        
-        result = {
-            'symbol': symbol.replace('.NS', ''),
-            'price': wr_1h['price'],
-            'williams_r_1h': wr_1h['williams_r'],
-            'zone_1h': wr_1h['zone'],
-            'zone_type_1h': wr_1h['zone_type'],
-            'williams_r_15m': wr_15m['williams_r'] if wr_15m else None,
-            'zone_15m': wr_15m['zone'] if wr_15m else None,
-            'zone_type_15m': wr_15m['zone_type'] if wr_15m else None,
-            'double_confirmation': False
-        }
-        
-        # Check for double confirmation (both timeframes in extreme zones)
-        if wr_15m and wr_1h['zone_type'] == 'extreme' and wr_15m['zone_type'] == 'extreme':
-            if wr_1h['zone'] == wr_15m['zone']:
-                result['double_confirmation'] = True
-        
-        # Return if 1h has ANY zone
-        if wr_1h['zone']:
-            return result
-        
+    # 1-hour analysis
+    wr_1h = analyze_williams_r_single(symbol, '5d', '1h')
+    
+    # 15-minute analysis
+    wr_15m = analyze_williams_r_single(symbol, '5d', '15m')
+    
+    # If no 1h data, return None
+    if not wr_1h:
         return None
-    except Exception as e:
-        print(f"Error in analyze_williams_r for {symbol}: {e}")
+    
+    # If 1h has no zone, return None
+    if not wr_1h['zone']:
         return None
+    
+    result = {
+        'symbol': symbol.replace('.NS', ''),
+        'price': wr_1h['price'],
+        'williams_r_1h': wr_1h['williams_r'],
+        'zone_1h': wr_1h['zone'],
+        'zone_type_1h': wr_1h['zone_type'],
+        'williams_r_15m': wr_15m['williams_r'] if wr_15m else None,
+        'zone_15m': wr_15m['zone'] if wr_15m else None,
+        'zone_type_15m': wr_15m['zone_type'] if wr_15m else None,
+        'double_confirmation': False
+    }
+    
+    # Check for double confirmation (both timeframes in extreme zones)
+    if wr_15m and wr_1h['zone_type'] == 'extreme' and wr_15m['zone_type'] == 'extreme':
+        if wr_1h['zone'] == wr_15m['zone']:
+            result['double_confirmation'] = True
+    
+    return result
 
 # ============================================================================
 # MAIN APP
@@ -346,7 +342,6 @@ with col1:
     st.markdown("🔍 **RSI:** 15-min (5d) + 1-hour (1mo) | **Williams %R:** 1H (5d) + 15M (5d)")
 with col2:
     if st.button("🔄 Scan Now", type="primary", use_container_width=True):
-        st.session_state.scanned = False
         st.cache_data.clear()
         st.rerun()
 
