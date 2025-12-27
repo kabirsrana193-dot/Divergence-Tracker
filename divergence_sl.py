@@ -7,14 +7,6 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
-# Try importing plotly, if not available show error
-try:
-    import plotly.graph_objects as go
-    PLOTLY_AVAILABLE = True
-except ImportError:
-    PLOTLY_AVAILABLE = False
-    st.error("⚠️ Plotly not installed. Please run: pip install plotly")
-
 # Page config
 st.set_page_config(
     page_title="Nifty 200 Technical Scanner",
@@ -480,145 +472,38 @@ def analyze_williams_r(symbol):
     return result
 
 # ============================================================================
-# HEATMAP FUNCTIONS
+# LIVE PRICE TRACKER FUNCTIONS
 # ============================================================================
-def get_stock_heatmap_data(symbol):
-    """Get comprehensive data for heatmap visualization"""
+def get_live_price_data(symbol):
+    """Get live price and day change for a stock"""
     try:
         stock = yf.Ticker(symbol)
-        data = stock.history(period='5d', interval='1h')
+        data = stock.history(period='2d', interval='1d')
         
-        if len(data) < 20:
-            return None
-        
-        # Calculate indicators
-        data['RSI'] = calculate_rsi(data)
-        data['WilliamsR'] = calculate_williams_r(data)
-        data = data.dropna()
-        
-        if len(data) == 0:
-            return None
-        
-        # Get last 30 candles for heatmap
-        recent_data = data.tail(30)
+        if len(data) < 2:
+            # Try 1 day with intraday
+            data = stock.history(period='1d', interval='5m')
+            if len(data) == 0:
+                return None
+            
+            current_price = data['Close'].iloc[-1]
+            open_price = data['Open'].iloc[0]
+            day_change = current_price - open_price
+            day_change_pct = (day_change / open_price) * 100
+        else:
+            current_price = data['Close'].iloc[-1]
+            prev_close = data['Close'].iloc[-2]
+            day_change = current_price - prev_close
+            day_change_pct = (day_change / prev_close) * 100
         
         return {
             'symbol': symbol.replace('.NS', ''),
-            'timestamps': recent_data.index.tolist(),
-            'rsi': recent_data['RSI'].tolist(),
-            'williams_r': recent_data['WilliamsR'].tolist(),
-            'close': recent_data['Close'].tolist()
+            'current_price': current_price,
+            'day_change': day_change,
+            'day_change_pct': day_change_pct
         }
     except Exception as e:
         return None
-
-def create_heatmap(selected_stocks):
-    """Create heatmap visualization for selected stocks"""
-    if not selected_stocks:
-        return None
-    
-    # Fetch data for selected stocks
-    heatmap_data = []
-    for symbol in selected_stocks:
-        data = get_stock_heatmap_data(symbol)
-        if data:
-            heatmap_data.append(data)
-    
-    if not heatmap_data:
-        return None
-    
-    # Build heatmap matrices
-    all_y_labels = []
-    all_z_rsi = []
-    all_z_wr = []
-    
-    max_len = max(len(d['rsi']) for d in heatmap_data)
-    
-    for stock_data in heatmap_data:
-        symbol = stock_data['symbol']
-        rsi_vals = stock_data['rsi']
-        wr_vals = stock_data['williams_r']
-        
-        # Pad if needed
-        while len(rsi_vals) < max_len:
-            rsi_vals = [None] + rsi_vals
-            wr_vals = [None] + wr_vals
-        
-        all_y_labels.append(f"{symbol} RSI")
-        all_y_labels.append(f"{symbol} W%R")
-        all_z_rsi.append(rsi_vals)
-        
-        # Normalize Williams %R from -100,0 to 0,100 for color scale
-        wr_normalized = [(w + 100) if w is not None else None for w in wr_vals]
-        all_z_wr.append(wr_normalized)
-    
-    # Interleave RSI and W%R rows
-    z_matrix = []
-    customdata_matrix = []
-    for i in range(len(heatmap_data)):
-        z_matrix.append(all_z_rsi[i])
-        z_matrix.append(all_z_wr[i])
-        customdata_matrix.append([None] * max_len)
-        customdata_matrix.append(heatmap_data[i]['williams_r'] + [None] * (max_len - len(heatmap_data[i]['williams_r'])))
-    
-    # Create time labels (hours ago)
-    time_labels = [f"-{max_len-i}h" for i in range(max_len)]
-    
-    # Create the heatmap
-    fig = go.Figure()
-    
-    # Add main heatmap
-    fig.add_trace(go.Heatmap(
-        z=z_matrix,
-        x=time_labels,
-        y=all_y_labels,
-        colorscale=[
-            [0, '#8B0000'],      # Dark red for extreme oversold
-            [0.2, '#d62728'],    # Red
-            [0.3, '#ff7f0e'],    # Orange
-            [0.5, '#2ca02c'],    # Green for neutral
-            [0.7, '#ff7f0e'],    # Orange
-            [0.8, '#d62728'],    # Red
-            [1, '#8B0000']       # Dark red for extreme overbought
-        ],
-        zmin=0,
-        zmax=100,
-        colorbar=dict(
-            title="Value",
-            titleside="right",
-            tickmode="linear",
-            tick0=0,
-            dtick=20
-        ),
-        customdata=customdata_matrix,
-        hovertemplate='%{y}<br>Time: %{x}<br>Value: %{z:.1f}<extra></extra>',
-        xgap=1,
-        ygap=1
-    ))
-    
-    # Update layout
-    fig.update_layout(
-        title={
-            'text': "Technical Indicators Heatmap - Last 30 Hours",
-            'x': 0.5,
-            'xanchor': 'center'
-        },
-        xaxis_title="Time",
-        yaxis_title="Stock / Indicator",
-        height=100 * len(all_y_labels) + 150,
-        xaxis=dict(
-            side='bottom',
-            tickangle=-45
-        ),
-        yaxis=dict(
-            autorange='reversed',
-            tickfont=dict(size=10)
-        ),
-        plot_bgcolor='white',
-        paper_bgcolor='white'
-    )
-    
-    return fig
 
 # ============================================================================
 # MAIN APP
@@ -686,7 +571,7 @@ if st.session_state.scanned:
     st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Heatmap"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "💰 Live Prices"])
 
 # ============================================================================
 # TAB 1: RSI DIVERGENCE
