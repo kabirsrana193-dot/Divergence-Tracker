@@ -472,38 +472,173 @@ def analyze_williams_r(symbol):
     return result
 
 # ============================================================================
-# LIVE PRICE TRACKER FUNCTIONS
+# HEATMAP FUNCTIONS (NO PLOTLY NEEDED)
 # ============================================================================
-def get_live_price_data(symbol):
-    """Get live price and day change for a stock"""
+def get_stock_heatmap_data(symbol):
+    """Get comprehensive data for heatmap visualization"""
     try:
         stock = yf.Ticker(symbol)
-        data = stock.history(period='2d', interval='1d')
+        data = stock.history(period='5d', interval='1h')
         
-        if len(data) < 2:
-            # Try 1 day with intraday
-            data = stock.history(period='1d', interval='5m')
-            if len(data) == 0:
-                return None
-            
-            current_price = data['Close'].iloc[-1]
-            open_price = data['Open'].iloc[0]
-            day_change = current_price - open_price
-            day_change_pct = (day_change / open_price) * 100
-        else:
-            current_price = data['Close'].iloc[-1]
-            prev_close = data['Close'].iloc[-2]
-            day_change = current_price - prev_close
-            day_change_pct = (day_change / prev_close) * 100
+        if len(data) < 20:
+            return None
+        
+        # Calculate indicators
+        data['RSI'] = calculate_rsi(data)
+        data['WilliamsR'] = calculate_williams_r(data)
+        data = data.dropna()
+        
+        if len(data) == 0:
+            return None
+        
+        # Get last 30 candles for heatmap
+        recent_data = data.tail(30)
         
         return {
             'symbol': symbol.replace('.NS', ''),
-            'current_price': current_price,
-            'day_change': day_change,
-            'day_change_pct': day_change_pct
+            'timestamps': recent_data.index.tolist(),
+            'rsi': recent_data['RSI'].tolist(),
+            'williams_r': recent_data['WilliamsR'].tolist(),
+            'close': recent_data['Close'].tolist()
         }
     except Exception as e:
         return None
+
+def get_heatmap_color(value, indicator_type):
+    """Get color based on indicator value"""
+    if indicator_type == 'RSI':
+        if value < 30:
+            return '#dc2626'  # Red - oversold
+        elif value < 40:
+            return '#f97316'  # Orange
+        elif value < 60:
+            return '#22c55e'  # Green - neutral
+        elif value < 70:
+            return '#f97316'  # Orange
+        else:
+            return '#dc2626'  # Red - overbought
+    else:  # Williams %R
+        if value < -80:
+            return '#dc2626'  # Red - oversold
+        elif value < -60:
+            return '#f97316'  # Orange
+        elif value < -40:
+            return '#22c55e'  # Green - neutral
+        elif value < -20:
+            return '#f97316'  # Orange
+        else:
+            return '#dc2626'  # Red - overbought
+
+def create_html_heatmap(selected_stocks):
+    """Create HTML heatmap without plotly"""
+    if not selected_stocks:
+        return None
+    
+    # Fetch data for selected stocks
+    heatmap_data = []
+    for symbol in selected_stocks:
+        data = get_stock_heatmap_data(symbol)
+        if data:
+            heatmap_data.append(data)
+    
+    if not heatmap_data:
+        return None
+    
+    # Create HTML heatmap
+    html = """
+    <style>
+        .heatmap-container {
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        .heatmap-table {
+            border-collapse: collapse;
+            font-size: 11px;
+            min-width: 100%;
+        }
+        .heatmap-table th {
+            background-color: #1e1e1e;
+            color: white;
+            padding: 8px 4px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .heatmap-table td {
+            padding: 8px 4px;
+            text-align: center;
+            color: white;
+            font-weight: bold;
+            border: 1px solid #333;
+            min-width: 40px;
+        }
+        .stock-label {
+            position: sticky;
+            left: 0;
+            background-color: #2d2d2d;
+            z-index: 5;
+            font-weight: bold;
+            text-align: left;
+            padding-left: 10px !important;
+        }
+    </style>
+    <div class="heatmap-container">
+        <table class="heatmap-table">
+            <thead>
+                <tr>
+                    <th class="stock-label">Stock / Indicator</th>
+    """
+    
+    # Add time headers (last 30 hours)
+    max_len = max(len(d['rsi']) for d in heatmap_data)
+    for i in range(max_len):
+        html += f'<th>{max_len - i}h ago</th>'
+    
+    html += """
+                </tr>
+            </thead>
+            <tbody>
+    """
+    
+    # Add rows for each stock (RSI + Williams %R)
+    for stock_data in heatmap_data:
+        symbol = stock_data['symbol']
+        rsi_vals = stock_data['rsi']
+        wr_vals = stock_data['williams_r']
+        
+        # Pad data if needed
+        while len(rsi_vals) < max_len:
+            rsi_vals = [None] + rsi_vals
+            wr_vals = [None] + wr_vals
+        
+        # RSI Row
+        html += f'<tr><td class="stock-label">{symbol} RSI</td>'
+        for val in rsi_vals:
+            if val is not None:
+                color = get_heatmap_color(val, 'RSI')
+                html += f'<td style="background-color: {color};" title="{val:.1f}">{val:.0f}</td>'
+            else:
+                html += '<td style="background-color: #1e1e1e;">-</td>'
+        html += '</tr>'
+        
+        # Williams %R Row
+        html += f'<tr><td class="stock-label">{symbol} W%R</td>'
+        for val in wr_vals:
+            if val is not None:
+                color = get_heatmap_color(val, 'WR')
+                html += f'<td style="background-color: {color};" title="{val:.1f}">{val:.0f}</td>'
+            else:
+                html += '<td style="background-color: #1e1e1e;">-</td>'
+        html += '</tr>'
+    
+    html += """
+            </tbody>
+        </table>
+    </div>
+    """
+    
+    return html
 
 # ============================================================================
 # MAIN APP
@@ -571,7 +706,7 @@ if st.session_state.scanned:
     st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "💰 Live Prices"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Heatmap"])
 
 # ============================================================================
 # TAB 1: RSI DIVERGENCE
@@ -808,6 +943,20 @@ with tab3:
 # ============================================================================
 with tab4:
     st.subheader("🔥 Technical Indicators Heatmap")
+    
+    if not PLOTLY_AVAILABLE:
+        st.error("📦 **Plotly is required for heatmap visualization**")
+        st.markdown("""
+        Please install plotly by running:
+        ```bash
+        pip install plotly
+        ```
+        Then restart your Streamlit app.
+        """)
+    else:
+        st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
+    
+    # Create list of stock names without .NS
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
     
     # Multi-select dropdown
