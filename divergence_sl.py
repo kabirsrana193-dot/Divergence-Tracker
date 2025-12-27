@@ -28,7 +28,7 @@ NIFTY_200_SYMBOLS = [
     'HEROMOTOCO.NS', 'GRASIM.NS', 'BRITANNIA.NS', 'BPCL.NS', 'SBILIFE.NS',
     'TATACONSUM.NS', 'BAJAJ-AUTO.NS', 'LTIM.NS', 'HDFCLIFE.NS', 'SHRIRAMFIN.NS',
     'TMPV.NS', 'UPL.NS', 'SHREECEM.NS', 'HAVELLS.NS', 'PIDILITIND.NS',
-    'IOC.NS', 'VEDL.NS', 'GAIL.NS', 'ETERNAL.NS', 'PAYTM.NS',
+    'IOC.NS', 'VEDL.NS', 'GAIL.NS', 'ZOMATO.NS', 'PAYTM.NS',
     'TRENT.NS', 'DMART.NS', 'MRF.NS', 'LUPIN.NS', 'TORNTPHARM.NS',
     'BIOCON.NS', 'AUROPHARMA.NS', 'DLF.NS', 'YESBANK.NS', 'BANKBARODA.NS',
     'PNB.NS', 'CANBK.NS', 'UNIONBANK.NS', 'INDIANB.NS', 'FEDERALBNK.NS',
@@ -520,87 +520,95 @@ def create_heatmap(selected_stocks):
     if not heatmap_data:
         return None
     
-    # Create subplots - one row per stock, 3 columns (Price, RSI, Williams %R)
-    fig = go.Figure()
+    # Build heatmap matrices
+    all_y_labels = []
+    all_z_rsi = []
+    all_z_wr = []
     
-    # Determine common time axis
-    max_len = max(len(d['timestamps']) for d in heatmap_data)
-    time_indices = list(range(max_len))
+    max_len = max(len(d['rsi']) for d in heatmap_data)
     
-    for idx, stock_data in enumerate(heatmap_data):
+    for stock_data in heatmap_data:
         symbol = stock_data['symbol']
-        
-        # Pad data if needed
-        n = len(stock_data['rsi'])
         rsi_vals = stock_data['rsi']
         wr_vals = stock_data['williams_r']
         
-        # Create heatmap matrix for this stock (1 row with multiple metrics)
-        # We'll stack RSI and Williams %R as two separate rows
-        y_labels = [f"{symbol} RSI", f"{symbol} W%R"]
+        # Pad if needed
+        while len(rsi_vals) < max_len:
+            rsi_vals = [None] + rsi_vals
+            wr_vals = [None] + wr_vals
         
-        # Normalize values for heatmap coloring
-        # RSI: 0-100 scale
-        # Williams %R: -100 to 0, convert to 0-100 for visualization
-        wr_normalized = [(w + 100) for w in wr_vals]
+        all_y_labels.append(f"{symbol} RSI")
+        all_y_labels.append(f"{symbol} W%R")
+        all_z_rsi.append(rsi_vals)
         
-        # Add RSI heatmap
-        fig.add_trace(go.Heatmap(
-            z=[rsi_vals],
-            x=time_indices[:n],
-            y=[f"{symbol} RSI"],
-            colorscale=[
-                [0, '#d62728'],      # Red for oversold (0-30)
-                [0.3, '#ff7f0e'],    # Orange
-                [0.5, '#2ca02c'],    # Green for neutral (40-60)
-                [0.7, '#ff7f0e'],    # Orange
-                [1, '#d62728']       # Red for overbought (70-100)
-            ],
-            zmin=0,
-            zmax=100,
-            colorbar=dict(
-                title="RSI",
-                x=1.02,
-                len=0.3,
-                y=0.85 - (idx * 0.15)
-            ),
-            showscale=(idx == 0),
-            hovertemplate=f'{symbol} RSI: %{{z:.1f}}<extra></extra>'
-        ))
-        
-        # Add Williams %R heatmap
-        fig.add_trace(go.Heatmap(
-            z=[wr_normalized],
-            x=time_indices[:n],
-            y=[f"{symbol} W%R"],
-            colorscale=[
-                [0, '#d62728'],      # Red for oversold (-100)
-                [0.2, '#ff7f0e'],    # Orange
-                [0.5, '#2ca02c'],    # Green for neutral
-                [0.8, '#ff7f0e'],    # Orange
-                [1, '#d62728']       # Red for overbought (0)
-            ],
-            zmin=0,
-            zmax=100,
-            colorbar=dict(
-                title="W%R",
-                x=1.08,
-                len=0.3,
-                y=0.85 - (idx * 0.15)
-            ),
-            showscale=(idx == 0),
-            customdata=[[w] for w in wr_vals],
-            hovertemplate=f'{symbol} W%R: %{{customdata[0]:.1f}}<extra></extra>'
-        ))
+        # Normalize Williams %R from -100,0 to 0,100 for color scale
+        wr_normalized = [(w + 100) if w is not None else None for w in wr_vals]
+        all_z_wr.append(wr_normalized)
+    
+    # Interleave RSI and W%R rows
+    z_matrix = []
+    customdata_matrix = []
+    for i in range(len(heatmap_data)):
+        z_matrix.append(all_z_rsi[i])
+        z_matrix.append(all_z_wr[i])
+        customdata_matrix.append([None] * max_len)
+        customdata_matrix.append(heatmap_data[i]['williams_r'] + [None] * (max_len - len(heatmap_data[i]['williams_r'])))
+    
+    # Create time labels (hours ago)
+    time_labels = [f"-{max_len-i}h" for i in range(max_len)]
+    
+    # Create the heatmap
+    fig = go.Figure()
+    
+    # Add main heatmap
+    fig.add_trace(go.Heatmap(
+        z=z_matrix,
+        x=time_labels,
+        y=all_y_labels,
+        colorscale=[
+            [0, '#8B0000'],      # Dark red for extreme oversold
+            [0.2, '#d62728'],    # Red
+            [0.3, '#ff7f0e'],    # Orange
+            [0.5, '#2ca02c'],    # Green for neutral
+            [0.7, '#ff7f0e'],    # Orange
+            [0.8, '#d62728'],    # Red
+            [1, '#8B0000']       # Dark red for extreme overbought
+        ],
+        zmin=0,
+        zmax=100,
+        colorbar=dict(
+            title="Value",
+            titleside="right",
+            tickmode="linear",
+            tick0=0,
+            dtick=20
+        ),
+        customdata=customdata_matrix,
+        hovertemplate='%{y}<br>Time: %{x}<br>Value: %{z:.1f}<extra></extra>',
+        xgap=1,
+        ygap=1
+    ))
     
     # Update layout
     fig.update_layout(
-        title="Technical Indicators Heatmap (Last 30 Hours)",
-        xaxis_title="Time (Hours Ago)",
-        height=150 * len(heatmap_data) * 2,
-        yaxis=dict(autorange='reversed'),
-        plot_bgcolor='#1e1e1e',
-        paper_bgcolor='#0e1117'
+        title={
+            'text': "Technical Indicators Heatmap - Last 30 Hours",
+            'x': 0.5,
+            'xanchor': 'center'
+        },
+        xaxis_title="Time",
+        yaxis_title="Stock / Indicator",
+        height=100 * len(all_y_labels) + 150,
+        xaxis=dict(
+            side='bottom',
+            tickangle=-45
+        ),
+        yaxis=dict(
+            autorange='reversed',
+            tickfont=dict(size=10)
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white'
     )
     
     return fig
