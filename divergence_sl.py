@@ -808,20 +808,6 @@ with tab3:
 # ============================================================================
 with tab4:
     st.subheader("🔥 Technical Indicators Heatmap")
-    
-    if not PLOTLY_AVAILABLE:
-        st.error("📦 **Plotly is required for heatmap visualization**")
-        st.markdown("""
-        Please install plotly by running:
-        ```bash
-        pip install plotly
-        ```
-        Then restart your Streamlit app.
-        """)
-    else:
-        st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
-    
-    # Create list of stock names without .NS
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
     
     # Multi-select dropdown
