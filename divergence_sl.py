@@ -927,7 +927,7 @@ with tab4:
         selected_symbols = [s + '.NS' for s in selected]
         
         with st.spinner(f"Loading heatmap data for {len(selected)} stocks..."):
-            fig = create_heatmap(selected_symbols)
+            fig = build_heatmap_chart(selected_symbols)
             
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
