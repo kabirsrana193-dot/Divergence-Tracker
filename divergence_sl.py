@@ -4,9 +4,16 @@ import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
-import plotly.graph_objects as go
 import warnings
 warnings.filterwarnings('ignore')
+
+# Try importing plotly, if not available show error
+try:
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.error("⚠️ Plotly not installed. Please run: pip install plotly")
 
 # Page config
 st.set_page_config(
@@ -27,7 +34,7 @@ NIFTY_200_SYMBOLS = [
     'JSWSTEEL.NS', 'APOLLOHOSP.NS', 'CIPLA.NS', 'EICHERMOT.NS', 'HINDALCO.NS',
     'HEROMOTOCO.NS', 'GRASIM.NS', 'BRITANNIA.NS', 'BPCL.NS', 'SBILIFE.NS',
     'TATACONSUM.NS', 'BAJAJ-AUTO.NS', 'LTIM.NS', 'HDFCLIFE.NS', 'SHRIRAMFIN.NS',
-    'TMPV.NS', 'UPL.NS', 'SHREECEM.NS', 'HAVELLS.NS', 'PIDILITIND.NS',
+    'TATAMOTORS.NS', 'UPL.NS', 'SHREECEM.NS', 'HAVELLS.NS', 'PIDILITIND.NS',
     'IOC.NS', 'VEDL.NS', 'GAIL.NS', 'ZOMATO.NS', 'PAYTM.NS',
     'TRENT.NS', 'DMART.NS', 'MRF.NS', 'LUPIN.NS', 'TORNTPHARM.NS',
     'BIOCON.NS', 'AUROPHARMA.NS', 'DLF.NS', 'YESBANK.NS', 'BANKBARODA.NS',
@@ -916,7 +923,18 @@ with tab3:
 # ============================================================================
 with tab4:
     st.subheader("🔥 Technical Indicators Heatmap")
-    st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
+    
+    if not PLOTLY_AVAILABLE:
+        st.error("📦 **Plotly is required for heatmap visualization**")
+        st.markdown("""
+        Please install plotly by running:
+        ```bash
+        pip install plotly
+        ```
+        Then restart your Streamlit app.
+        """)
+    else:
+        st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
     
     # Create list of stock names without .NS
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
