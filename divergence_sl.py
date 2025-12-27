@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
+import plotly.graph_objects as go
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -472,7 +473,7 @@ def analyze_williams_r(symbol):
     return result
 
 # ============================================================================
-# HEATMAP FUNCTIONS (NO PLOTLY NEEDED)
+# HEATMAP FUNCTIONS
 # ============================================================================
 def get_stock_heatmap_data(symbol):
     """Get comprehensive data for heatmap visualization"""
@@ -504,33 +505,8 @@ def get_stock_heatmap_data(symbol):
     except Exception as e:
         return None
 
-def get_heatmap_color(value, indicator_type):
-    """Get color based on indicator value"""
-    if indicator_type == 'RSI':
-        if value < 30:
-            return '#dc2626'  # Red - oversold
-        elif value < 40:
-            return '#f97316'  # Orange
-        elif value < 60:
-            return '#22c55e'  # Green - neutral
-        elif value < 70:
-            return '#f97316'  # Orange
-        else:
-            return '#dc2626'  # Red - overbought
-    else:  # Williams %R
-        if value < -80:
-            return '#dc2626'  # Red - oversold
-        elif value < -60:
-            return '#f97316'  # Orange
-        elif value < -40:
-            return '#22c55e'  # Green - neutral
-        elif value < -20:
-            return '#f97316'  # Orange
-        else:
-            return '#dc2626'  # Red - overbought
-
-def create_html_heatmap(selected_stocks):
-    """Create HTML heatmap without plotly"""
+def create_heatmap(selected_stocks):
+    """Create heatmap visualization for selected stocks"""
     if not selected_stocks:
         return None
     
@@ -544,101 +520,90 @@ def create_html_heatmap(selected_stocks):
     if not heatmap_data:
         return None
     
-    # Create HTML heatmap
-    html = """
-    <style>
-        .heatmap-container {
-            overflow-x: auto;
-            margin: 20px 0;
-        }
-        .heatmap-table {
-            border-collapse: collapse;
-            font-size: 11px;
-            min-width: 100%;
-        }
-        .heatmap-table th {
-            background-color: #1e1e1e;
-            color: white;
-            padding: 8px 4px;
-            text-align: center;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        .heatmap-table td {
-            padding: 8px 4px;
-            text-align: center;
-            color: white;
-            font-weight: bold;
-            border: 1px solid #333;
-            min-width: 40px;
-        }
-        .stock-label {
-            position: sticky;
-            left: 0;
-            background-color: #2d2d2d;
-            z-index: 5;
-            font-weight: bold;
-            text-align: left;
-            padding-left: 10px !important;
-        }
-    </style>
-    <div class="heatmap-container">
-        <table class="heatmap-table">
-            <thead>
-                <tr>
-                    <th class="stock-label">Stock / Indicator</th>
-    """
+    # Create subplots - one row per stock, 3 columns (Price, RSI, Williams %R)
+    fig = go.Figure()
     
-    # Add time headers (last 30 hours)
-    max_len = max(len(d['rsi']) for d in heatmap_data)
-    for i in range(max_len):
-        html += f'<th>{max_len - i}h ago</th>'
+    # Determine common time axis
+    max_len = max(len(d['timestamps']) for d in heatmap_data)
+    time_indices = list(range(max_len))
     
-    html += """
-                </tr>
-            </thead>
-            <tbody>
-    """
-    
-    # Add rows for each stock (RSI + Williams %R)
-    for stock_data in heatmap_data:
+    for idx, stock_data in enumerate(heatmap_data):
         symbol = stock_data['symbol']
+        
+        # Pad data if needed
+        n = len(stock_data['rsi'])
         rsi_vals = stock_data['rsi']
         wr_vals = stock_data['williams_r']
         
-        # Pad data if needed
-        while len(rsi_vals) < max_len:
-            rsi_vals = [None] + rsi_vals
-            wr_vals = [None] + wr_vals
+        # Create heatmap matrix for this stock (1 row with multiple metrics)
+        # We'll stack RSI and Williams %R as two separate rows
+        y_labels = [f"{symbol} RSI", f"{symbol} W%R"]
         
-        # RSI Row
-        html += f'<tr><td class="stock-label">{symbol} RSI</td>'
-        for val in rsi_vals:
-            if val is not None:
-                color = get_heatmap_color(val, 'RSI')
-                html += f'<td style="background-color: {color};" title="{val:.1f}">{val:.0f}</td>'
-            else:
-                html += '<td style="background-color: #1e1e1e;">-</td>'
-        html += '</tr>'
+        # Normalize values for heatmap coloring
+        # RSI: 0-100 scale
+        # Williams %R: -100 to 0, convert to 0-100 for visualization
+        wr_normalized = [(w + 100) for w in wr_vals]
         
-        # Williams %R Row
-        html += f'<tr><td class="stock-label">{symbol} W%R</td>'
-        for val in wr_vals:
-            if val is not None:
-                color = get_heatmap_color(val, 'WR')
-                html += f'<td style="background-color: {color};" title="{val:.1f}">{val:.0f}</td>'
-            else:
-                html += '<td style="background-color: #1e1e1e;">-</td>'
-        html += '</tr>'
+        # Add RSI heatmap
+        fig.add_trace(go.Heatmap(
+            z=[rsi_vals],
+            x=time_indices[:n],
+            y=[f"{symbol} RSI"],
+            colorscale=[
+                [0, '#d62728'],      # Red for oversold (0-30)
+                [0.3, '#ff7f0e'],    # Orange
+                [0.5, '#2ca02c'],    # Green for neutral (40-60)
+                [0.7, '#ff7f0e'],    # Orange
+                [1, '#d62728']       # Red for overbought (70-100)
+            ],
+            zmin=0,
+            zmax=100,
+            colorbar=dict(
+                title="RSI",
+                x=1.02,
+                len=0.3,
+                y=0.85 - (idx * 0.15)
+            ),
+            showscale=(idx == 0),
+            hovertemplate=f'{symbol} RSI: %{{z:.1f}}<extra></extra>'
+        ))
+        
+        # Add Williams %R heatmap
+        fig.add_trace(go.Heatmap(
+            z=[wr_normalized],
+            x=time_indices[:n],
+            y=[f"{symbol} W%R"],
+            colorscale=[
+                [0, '#d62728'],      # Red for oversold (-100)
+                [0.2, '#ff7f0e'],    # Orange
+                [0.5, '#2ca02c'],    # Green for neutral
+                [0.8, '#ff7f0e'],    # Orange
+                [1, '#d62728']       # Red for overbought (0)
+            ],
+            zmin=0,
+            zmax=100,
+            colorbar=dict(
+                title="W%R",
+                x=1.08,
+                len=0.3,
+                y=0.85 - (idx * 0.15)
+            ),
+            showscale=(idx == 0),
+            customdata=[[w] for w in wr_vals],
+            hovertemplate=f'{symbol} W%R: %{{customdata[0]:.1f}}<extra></extra>'
+        ))
     
-    html += """
-            </tbody>
-        </table>
-    </div>
-    """
+    # Update layout
+    fig.update_layout(
+        title="Technical Indicators Heatmap (Last 30 Hours)",
+        xaxis_title="Time (Hours Ago)",
+        height=150 * len(heatmap_data) * 2,
+        yaxis=dict(autorange='reversed'),
+        plot_bgcolor='#1e1e1e',
+        paper_bgcolor='#0e1117'
+    )
     
-    return html
+    return fig
 
 # ============================================================================
 # MAIN APP
@@ -943,18 +908,7 @@ with tab3:
 # ============================================================================
 with tab4:
     st.subheader("🔥 Technical Indicators Heatmap")
-    
-    if not PLOTLY_AVAILABLE:
-        st.error("📦 **Plotly is required for heatmap visualization**")
-        st.markdown("""
-        Please install plotly by running:
-        ```bash
-        pip install plotly
-        ```
-        Then restart your Streamlit app.
-        """)
-    else:
-        st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
+    st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
     
     # Create list of stock names without .NS
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
