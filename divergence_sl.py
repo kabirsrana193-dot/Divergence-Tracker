@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
 from datetime import datetime
+import plotly.graph_objects as go
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -472,6 +473,139 @@ def analyze_williams_r(symbol):
     return result
 
 # ============================================================================
+# HEATMAP FUNCTIONS
+# ============================================================================
+def get_stock_heatmap_data(symbol):
+    """Get comprehensive data for heatmap visualization"""
+    try:
+        stock = yf.Ticker(symbol)
+        data = stock.history(period='5d', interval='1h')
+        
+        if len(data) < 20:
+            return None
+        
+        # Calculate indicators
+        data['RSI'] = calculate_rsi(data)
+        data['WilliamsR'] = calculate_williams_r(data)
+        data = data.dropna()
+        
+        if len(data) == 0:
+            return None
+        
+        # Get last 30 candles for heatmap
+        recent_data = data.tail(30)
+        
+        return {
+            'symbol': symbol.replace('.NS', ''),
+            'timestamps': recent_data.index.tolist(),
+            'rsi': recent_data['RSI'].tolist(),
+            'williams_r': recent_data['WilliamsR'].tolist(),
+            'close': recent_data['Close'].tolist()
+        }
+    except Exception as e:
+        return None
+
+def create_heatmap(selected_stocks):
+    """Create heatmap visualization for selected stocks"""
+    if not selected_stocks:
+        return None
+    
+    # Fetch data for selected stocks
+    heatmap_data = []
+    for symbol in selected_stocks:
+        data = get_stock_heatmap_data(symbol)
+        if data:
+            heatmap_data.append(data)
+    
+    if not heatmap_data:
+        return None
+    
+    # Create subplots - one row per stock, 3 columns (Price, RSI, Williams %R)
+    fig = go.Figure()
+    
+    # Determine common time axis
+    max_len = max(len(d['timestamps']) for d in heatmap_data)
+    time_indices = list(range(max_len))
+    
+    for idx, stock_data in enumerate(heatmap_data):
+        symbol = stock_data['symbol']
+        
+        # Pad data if needed
+        n = len(stock_data['rsi'])
+        rsi_vals = stock_data['rsi']
+        wr_vals = stock_data['williams_r']
+        
+        # Create heatmap matrix for this stock (1 row with multiple metrics)
+        # We'll stack RSI and Williams %R as two separate rows
+        y_labels = [f"{symbol} RSI", f"{symbol} W%R"]
+        
+        # Normalize values for heatmap coloring
+        # RSI: 0-100 scale
+        # Williams %R: -100 to 0, convert to 0-100 for visualization
+        wr_normalized = [(w + 100) for w in wr_vals]
+        
+        # Add RSI heatmap
+        fig.add_trace(go.Heatmap(
+            z=[rsi_vals],
+            x=time_indices[:n],
+            y=[f"{symbol} RSI"],
+            colorscale=[
+                [0, '#d62728'],      # Red for oversold (0-30)
+                [0.3, '#ff7f0e'],    # Orange
+                [0.5, '#2ca02c'],    # Green for neutral (40-60)
+                [0.7, '#ff7f0e'],    # Orange
+                [1, '#d62728']       # Red for overbought (70-100)
+            ],
+            zmin=0,
+            zmax=100,
+            colorbar=dict(
+                title="RSI",
+                x=1.02,
+                len=0.3,
+                y=0.85 - (idx * 0.15)
+            ),
+            showscale=(idx == 0),
+            hovertemplate=f'{symbol} RSI: %{{z:.1f}}<extra></extra>'
+        ))
+        
+        # Add Williams %R heatmap
+        fig.add_trace(go.Heatmap(
+            z=[wr_normalized],
+            x=time_indices[:n],
+            y=[f"{symbol} W%R"],
+            colorscale=[
+                [0, '#d62728'],      # Red for oversold (-100)
+                [0.2, '#ff7f0e'],    # Orange
+                [0.5, '#2ca02c'],    # Green for neutral
+                [0.8, '#ff7f0e'],    # Orange
+                [1, '#d62728']       # Red for overbought (0)
+            ],
+            zmin=0,
+            zmax=100,
+            colorbar=dict(
+                title="W%R",
+                x=1.08,
+                len=0.3,
+                y=0.85 - (idx * 0.15)
+            ),
+            showscale=(idx == 0),
+            customdata=[[w] for w in wr_vals],
+            hovertemplate=f'{symbol} W%R: %{{customdata[0]:.1f}}<extra></extra>'
+        ))
+    
+    # Update layout
+    fig.update_layout(
+        title="Technical Indicators Heatmap (Last 30 Hours)",
+        xaxis_title="Time (Hours Ago)",
+        height=150 * len(heatmap_data) * 2,
+        yaxis=dict(autorange='reversed'),
+        plot_bgcolor='#1e1e1e',
+        paper_bgcolor='#0e1117'
+    )
+    
+    return fig
+
+# ============================================================================
 # MAIN APP
 # ============================================================================
 st.title("📈 Nifty 200 Technical Scanner")
@@ -537,11 +671,11 @@ if st.session_state.scanned:
     st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Heatmap"])
 
 # ============================================================================
 # TAB 1: RSI DIVERGENCE
-
+# ============================================================================
 with tab1:
     rsi_results = st.session_state.get('rsi_results', [])
     
@@ -590,7 +724,9 @@ with tab1:
     
     st.caption("💡 Score: 80+ = Very Strong | 60-79 = Strong | 40-59 = Moderate")
 
+# ============================================================================
 # TAB 2: WILLIAMS %R
+# ============================================================================
 with tab2:
     wr_results = st.session_state.get('wr_results', [])
     
@@ -711,17 +847,17 @@ with tab2:
         else:
             st.info("No OS")
 
+# ============================================================================
 # TAB 3: EXTENDED STAY ZONES
+# ============================================================================
 with tab3:
     wr_results = st.session_state.get('wr_results', [])
     
-    # Filter stocks that have been in zone for 3+ hours
     extended_stay = [r for r in wr_results if r.get('extended_stay', False)]
     
     extended_ob = [r for r in extended_stay if 'OVERBOUGHT' in r.get('zone_1h', '')]
     extended_os = [r for r in extended_stay if 'OVERSOLD' in r.get('zone_1h', '')]
     
-    # Sort by hours in zone
     extended_ob.sort(key=lambda x: x['hours_in_zone_1h'], reverse=True)
     extended_os.sort(key=lambda x: x['hours_in_zone_1h'], reverse=True)
     
@@ -766,5 +902,72 @@ with tab3:
     
     st.caption("💡 **Extended Stay:** Stocks that stayed in zone for multiple hours are building energy for reversal")
     st.caption("⚡ **Higher hours = Higher probability** of reversal when breakout happens")
+
+# ============================================================================
+# TAB 4: HEATMAP
+# ============================================================================
+with tab4:
+    st.subheader("🔥 Technical Indicators Heatmap")
+    st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
+    
+    # Create list of stock names without .NS
+    stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
+    
+    # Multi-select dropdown
+    selected = st.multiselect(
+        "Select stocks (max 8):",
+        options=stock_names,
+        default=[],
+        max_selections=8,
+        help="Choose stocks to compare their RSI and Williams %R patterns"
+    )
+    
+    if selected:
+        # Convert back to .NS format
+        selected_symbols = [s + '.NS' for s in selected]
+        
+        with st.spinner(f"Loading heatmap data for {len(selected)} stocks..."):
+            fig = create_heatmap(selected_symbols)
+            
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("**🎨 Color Guide:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("""
+                    **RSI:**
+                    - 🟢 Green (40-60): Neutral zone
+                    - 🟠 Orange (30-40, 60-70): Caution zones  
+                    - 🔴 Red (<30, >70): Oversold/Overbought
+                    """)
+                with col2:
+                    st.markdown("""
+                    **Williams %R:**
+                    - 🟢 Green (-60 to -40): Neutral zone
+                    - 🟠 Orange (-80 to -60, -40 to -20): Caution zones
+                    - 🔴 Red (<-80, >-20): Oversold/Overbought  
+                    """)
+            else:
+                st.error("Unable to load heatmap data. Please try again.")
+    else:
+        st.info("👆 Select stocks from the dropdown above to view heatmap")
+        
+        # Show some suggested stocks
+        st.markdown("**💡 Suggested stocks to analyze:**")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("**Large Cap:**")
+            st.markdown("• RELIANCE\n• TCS\n• HDFCBANK\n• INFY")
+        
+        with col2:
+            st.markdown("**Mid Cap:**")
+            st.markdown("• DIXON\n• POLYCAB\n• TRENT\n• ZOMATO")
+        
+        with col3:
+            st.markdown("**Bank/Financial:**")
+            st.markdown("• ICICIBANK\n• AXISBANK\n• BAJFINANCE")
 
 st.divider()
