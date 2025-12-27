@@ -472,6 +472,32 @@ def analyze_williams_r(symbol):
     return result
 
 # ============================================================================
+# HEATMAP FUNCTION - Simple Price & Day Change
+# ============================================================================
+def get_stock_price_data(symbol):
+    """Get stock price and day change data"""
+    try:
+        stock = yf.Ticker(symbol)
+        data = stock.history(period='2d')
+        
+        if len(data) < 2:
+            return None
+        
+        current_price = data['Close'].iloc[-1]
+        prev_price = data['Close'].iloc[-2]
+        day_change = current_price - prev_price
+        day_change_pct = (day_change / prev_price) * 100
+        
+        return {
+            'symbol': symbol.replace('.NS', ''),
+            'price': current_price,
+            'day_change': day_change,
+            'day_change_pct': day_change_pct
+        }
+    except Exception as e:
+        return None
+
+# ============================================================================
 # MAIN APP
 # ============================================================================
 st.title("📈 Nifty 200 Technical Scanner")
@@ -537,11 +563,11 @@ if st.session_state.scanned:
     st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Price Heatmap"])
 
 # ============================================================================
 # TAB 1: RSI DIVERGENCE
-
+# ============================================================================
 with tab1:
     rsi_results = st.session_state.get('rsi_results', [])
     
@@ -590,7 +616,9 @@ with tab1:
     
     st.caption("💡 Score: 80+ = Very Strong | 60-79 = Strong | 40-59 = Moderate")
 
+# ============================================================================
 # TAB 2: WILLIAMS %R
+# ============================================================================
 with tab2:
     wr_results = st.session_state.get('wr_results', [])
     
@@ -711,17 +739,17 @@ with tab2:
         else:
             st.info("No OS")
 
+# ============================================================================
 # TAB 3: EXTENDED STAY ZONES
+# ============================================================================
 with tab3:
     wr_results = st.session_state.get('wr_results', [])
     
-    # Filter stocks that have been in zone for 3+ hours
     extended_stay = [r for r in wr_results if r.get('extended_stay', False)]
     
     extended_ob = [r for r in extended_stay if 'OVERBOUGHT' in r.get('zone_1h', '')]
     extended_os = [r for r in extended_stay if 'OVERSOLD' in r.get('zone_1h', '')]
     
-    # Sort by hours in zone
     extended_ob.sort(key=lambda x: x['hours_in_zone_1h'], reverse=True)
     extended_os.sort(key=lambda x: x['hours_in_zone_1h'], reverse=True)
     
@@ -766,5 +794,99 @@ with tab3:
     
     st.caption("💡 **Extended Stay:** Stocks that stayed in zone for multiple hours are building energy for reversal")
     st.caption("⚡ **Higher hours = Higher probability** of reversal when breakout happens")
+
+# ============================================================================
+# TAB 4: PRICE HEATMAP
+# ============================================================================
+with tab4:
+    st.subheader("🔥 Price Heatmap - Day Change")
+    st.markdown("**Select stocks to view their current price and day change**")
+    
+    # Create list of stock names without .NS
+    stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
+    
+    # Multi-select dropdown
+    selected = st.multiselect(
+        "Select stocks:",
+        options=stock_names,
+        default=[],
+        help="Choose stocks to view price and day change"
+    )
+    
+    if selected:
+        # Convert back to .NS format
+        selected_symbols = [s + '.NS' for s in selected]
+        
+        with st.spinner(f"Loading price data for {len(selected)} stocks..."):
+            price_data = []
+            for symbol in selected_symbols:
+                data = get_stock_price_data(symbol)
+                if data:
+                    price_data.append(data)
+            
+            if price_data:
+                # Create DataFrame
+                df = pd.DataFrame(price_data)
+                df = df.sort_values('day_change_pct', ascending=False)
+                
+                # Display as styled dataframe
+                def color_day_change(val):
+                    if val > 0:
+                        return 'background-color: #90EE90; color: #006400'  # Light green bg, dark green text
+                    elif val < 0:
+                        return 'background-color: #FFB6C1; color: #8B0000'  # Light red bg, dark red text
+                    else:
+                        return ''
+                
+                # Format the dataframe
+                df_display = df.copy()
+                df_display['Price (₹)'] = df_display['price'].round(2)
+                df_display['Change (₹)'] = df_display['day_change'].round(2)
+                df_display['Change (%)'] = df_display['day_change_pct'].round(2)
+                df_display = df_display[['symbol', 'Price (₹)', 'Change (₹)', 'Change (%)']]
+                df_display.columns = ['Stock', 'Price (₹)', 'Change (₹)', 'Change (%)']
+                
+                # Apply styling
+                styled_df = df_display.style.applymap(
+                    color_day_change, 
+                    subset=['Change (₹)', 'Change (%)']
+                )
+                
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                
+                # Summary stats
+                st.markdown("---")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                gainers = [d for d in price_data if d['day_change'] > 0]
+                losers = [d for d in price_data if d['day_change'] < 0]
+                
+                col1.metric("📈 Gainers", len(gainers))
+                col2.metric("📉 Losers", len(losers))
+                if gainers:
+                    col3.metric("🏆 Top Gain", f"{max(d['day_change_pct'] for d in gainers):.2f}%")
+                if losers:
+                    col4.metric("⬇️ Top Loss", f"{min(d['day_change_pct'] for d in losers):.2f}%")
+                
+            else:
+                st.error("Unable to load price data. Please try again.")
+    else:
+        st.info("👆 Select stocks from the dropdown above to view price heatmap")
+        
+        # Show some suggested stocks
+        st.markdown("**💡 Suggested stocks to analyze:**")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("**Large Cap:**")
+            st.markdown("• RELIANCE\n• TCS\n• HDFCBANK\n• INFY")
+        
+        with col2:
+            st.markdown("**Mid Cap:**")
+            st.markdown("• DIXON\n• POLYCAB\n• TRENT\n• ZOMATO")
+        
+        with col3:
+            st.markdown("**Bank/Financial:**")
+            st.markdown("• ICICIBANK\n• AXISBANK\n• BAJFINANCE")
 
 st.divider()
