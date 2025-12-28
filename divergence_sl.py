@@ -900,12 +900,309 @@ with tab3:
 # ============================================================================
 # TAB 4: HEATMAP
 # ============================================================================
+# MAIN APP
 # ============================================================================
-# TAB 4: HEATMAP WITH LIVE PRICES
+st.title("📈 Nifty 200 Technical Scanner")
+st.markdown("**RSI Divergence + Williams %R Analysis**")
+
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.markdown("🔍 **RSI:** 1H + 2H | **Williams %R:** 1H + 2H")
+with col2:
+    if st.button("🔄 Scan Now", type="primary", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+st.divider()
+
+# Initialize session state
+if 'scanned' not in st.session_state:
+    st.session_state.scanned = False
+
+# Run scan
+if not st.session_state.scanned:
+    with st.spinner("Scanning Nifty 200 stocks..."):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        rsi_results = []
+        wr_results = []
+        no_signal_count = 0
+        no_data_count = 0
+        total = len(NIFTY_200_SYMBOLS)
+        
+        for i, symbol in enumerate(NIFTY_200_SYMBOLS):
+            status_text.text(f"Analyzing {symbol.replace('.NS', '')}... ({i+1}/{total})")
+            
+            # RSI Divergence
+            rsi_result = analyze_stock_rsi(symbol)
+            if rsi_result is None:
+                no_data_count += 1
+            elif rsi_result == {}:
+                no_signal_count += 1
+            else:
+                rsi_results.append(rsi_result)
+            
+            # Williams %R
+            wr_result = analyze_williams_r(symbol)
+            if wr_result:
+                wr_results.append(wr_result)
+            
+            progress_bar.progress((i + 1) / total)
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.session_state.rsi_results = rsi_results
+        st.session_state.wr_results = wr_results
+        st.session_state.no_signal_count = no_signal_count
+        st.session_state.no_data_count = no_data_count
+        st.session_state.scan_time = datetime.now()
+        st.session_state.scanned = True
+
+# Display scan completion
+if st.session_state.scanned:
+    st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
+
+# Tabs
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Heatmap"])
+
+# ============================================================================
+# TAB 1: RSI DIVERGENCE
+# ============================================================================
+with tab1:
+    rsi_results = st.session_state.get('rsi_results', [])
+    
+    buy_signals = [r for r in rsi_results if 'BUY' in r['signal']]
+    sell_signals = [r for r in rsi_results if 'SELL' in r['signal']]
+    
+    buy_signals.sort(key=lambda x: x['score'], reverse=True)
+    sell_signals.sort(key=lambda x: x['score'], reverse=True)
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("🟢 BUY", len(buy_signals))
+    col2.metric("🔴 SELL", len(sell_signals))
+    col3.metric("⚪ No Signal", st.session_state.get('no_signal_count', 0))
+    col4.metric("❌ No Data", st.session_state.get('no_data_count', 0))
+    col5.metric("📊 Total", len(NIFTY_200_SYMBOLS))
+    
+    st.markdown("---")
+    
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.subheader("🟢 BUY Signals")
+        if buy_signals:
+            df = pd.DataFrame(buy_signals)
+            df['Rank'] = range(1, len(df) + 1)
+            df = df[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
+            df.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
+            df['Score'] = df['Score'].round(1)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No BUY signals")
+    
+    with col_right:
+        st.subheader("🔴 SELL Signals")
+        if sell_signals:
+            df = pd.DataFrame(sell_signals)
+            df['Rank'] = range(1, len(df) + 1)
+            df = df[['Rank', 'symbol', 'score', 'signal', 'price', 'details']]
+            df.columns = ['Rank', 'Stock', 'Score', 'Signal', 'Price (₹)', 'Timeframes']
+            df['Score'] = df['Score'].round(1)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No SELL signals")
+    
+    st.caption("💡 Score: 80+ = Very Strong | 60-79 = Strong | 40-59 = Moderate")
+
+# ============================================================================
+# TAB 2: WILLIAMS %R
+# ============================================================================
+with tab2:
+    wr_results = st.session_state.get('wr_results', [])
+    
+    extreme_ob_1h = [r for r in wr_results if r.get('zone_1h') == "EXTREME OVERBOUGHT"]
+    extreme_os_1h = [r for r in wr_results if r.get('zone_1h') == "EXTREME OVERSOLD"]
+    normal_ob_1h = [r for r in wr_results if r.get('zone_1h') == "OVERBOUGHT"]
+    normal_os_1h = [r for r in wr_results if r.get('zone_1h') == "OVERSOLD"]
+    double_confirm = [r for r in wr_results if r.get('double_confirmation', False)]
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("🔴 Extreme OB", len(extreme_ob_1h))
+    col2.metric("🟢 Extreme OS", len(extreme_os_1h))
+    col3.metric("🟠 Overbought", len(normal_ob_1h))
+    col4.metric("🟢 Oversold", len(normal_os_1h))
+    col5.metric("⚡ Double", len(double_confirm))
+    
+    st.markdown("---")
+    
+    # Double confirmation
+    if double_confirm:
+        st.subheader("🎯 DOUBLE CONFIRMATION (1H + 2H Extreme)")
+        col1, col2 = st.columns(2)
+        
+        double_ob = [r for r in double_confirm if r.get('zone_1h') == "EXTREME OVERBOUGHT"]
+        double_os = [r for r in double_confirm if r.get('zone_1h') == "EXTREME OVERSOLD"]
+        
+        with col1:
+            st.markdown("**🔴 EXTREME OVERBOUGHT**")
+            if double_ob:
+                df = pd.DataFrame(double_ob)
+                df['Rank'] = range(1, len(df) + 1)
+                df = df[['Rank', 'symbol', 'williams_r_1h', 'williams_r_2h', 'price']]
+                df.columns = ['Rank', 'Stock', '1H W%R', '2H W%R', 'Price (₹)']
+                df['1H W%R'] = df['1H W%R'].round(2)
+                df['2H W%R'] = df['2H W%R'].round(2)
+                df['Price (₹)'] = df['Price (₹)'].round(2)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No double OB")
+        
+        with col2:
+            st.markdown("**🟢 EXTREME OVERSOLD**")
+            if double_os:
+                df = pd.DataFrame(double_os)
+                df['Rank'] = range(1, len(df) + 1)
+                df = df[['Rank', 'symbol', 'williams_r_1h', 'williams_r_2h', 'price']]
+                df.columns = ['Rank', 'Stock', '1H W%R', '2H W%R', 'Price (₹)']
+                df['1H W%R'] = df['1H W%R'].round(2)
+                df['2H W%R'] = df['2H W%R'].round(2)
+                df['Price (₹)'] = df['Price (₹)'].round(2)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No double OS")
+        
+        st.markdown("---")
+    
+    # 1H Extreme zones
+    st.subheader("⚡ 1H Extreme Zones")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**🔴 EXTREME OVERBOUGHT (-5 to 0)**")
+        if extreme_ob_1h:
+            df = pd.DataFrame(extreme_ob_1h)
+            df['Rank'] = range(1, len(df) + 1)
+            df['⚡'] = df['double_confirmation'].apply(lambda x: '⚡' if x else '')
+            df = df[['Rank', '⚡', 'symbol', 'williams_r_1h', 'price']]
+            df.columns = ['Rank', '⚡', 'Stock', 'W%R', 'Price (₹)']
+            df['W%R'] = df['W%R'].round(2)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No extreme OB")
+    
+    with col2:
+        st.markdown("**🟢 EXTREME OVERSOLD (-95 to -100)**")
+        if extreme_os_1h:
+            df = pd.DataFrame(extreme_os_1h)
+            df['Rank'] = range(1, len(df) + 1)
+            df['⚡'] = df['double_confirmation'].apply(lambda x: '⚡' if x else '')
+            df = df[['Rank', '⚡', 'symbol', 'williams_r_1h', 'price']]
+            df.columns = ['Rank', '⚡', 'Stock', 'W%R', 'Price (₹)']
+            df['W%R'] = df['W%R'].round(2)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No extreme OS")
+    
+    st.markdown("---")
+    
+    # 1H Normal zones
+    st.subheader("📊 1H Normal Zones")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**🟠 OVERBOUGHT (-20 to -5)**")
+        if normal_ob_1h:
+            df = pd.DataFrame(normal_ob_1h)
+            df['Rank'] = range(1, len(df) + 1)
+            df = df[['Rank', 'symbol', 'williams_r_1h', 'price']]
+            df.columns = ['Rank', 'Stock', 'W%R', 'Price (₹)']
+            df['W%R'] = df['W%R'].round(2)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No OB")
+    
+    with col2:
+        st.markdown("**🟢 OVERSOLD (-95 to -80)**")
+        if normal_os_1h:
+            df = pd.DataFrame(normal_os_1h)
+            df['Rank'] = range(1, len(df) + 1)
+            df = df[['Rank', 'symbol', 'williams_r_1h', 'price']]
+            df.columns = ['Rank', 'Stock', 'W%R', 'Price (₹)']
+            df['W%R'] = df['W%R'].round(2)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No OS")
+
+# ============================================================================
+# TAB 3: EXTENDED STAY ZONES
+# ============================================================================
+with tab3:
+    wr_results = st.session_state.get('wr_results', [])
+    
+    extended_stay = [r for r in wr_results if r.get('extended_stay', False)]
+    
+    extended_ob = [r for r in extended_stay if 'OVERBOUGHT' in r.get('zone_1h', '')]
+    extended_os = [r for r in extended_stay if 'OVERSOLD' in r.get('zone_1h', '')]
+    
+    extended_ob.sort(key=lambda x: x['hours_in_zone_1h'], reverse=True)
+    extended_os.sort(key=lambda x: x['hours_in_zone_1h'], reverse=True)
+    
+    st.subheader("⏱️ Stocks in Zones for 3+ Hours")
+    st.markdown("**These stocks have been stuck in overbought/oversold zones - potential for strong reversal**")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("🔴 Extended Overbought", len(extended_ob))
+    col2.metric("🟢 Extended Oversold", len(extended_os))
+    
+    st.markdown("---")
+    
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.subheader("🔴 OVERBOUGHT 3+ Hours")
+        st.markdown("*Prolonged overbought - reversal likely*")
+        if extended_ob:
+            df = pd.DataFrame(extended_ob)
+            df['Rank'] = range(1, len(df) + 1)
+            df = df[['Rank', 'symbol', 'hours_in_zone_1h', 'williams_r_1h', 'zone_1h', 'price']]
+            df.columns = ['Rank', 'Stock', 'Hours', 'W%R', 'Zone', 'Price (₹)']
+            df['W%R'] = df['W%R'].round(2)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No stocks in extended overbought")
+    
+    with col_right:
+        st.subheader("🟢 OVERSOLD 3+ Hours")
+        st.markdown("*Prolonged oversold - bounce likely*")
+        if extended_os:
+            df = pd.DataFrame(extended_os)
+            df['Rank'] = range(1, len(df) + 1)
+            df = df[['Rank', 'symbol', 'hours_in_zone_1h', 'williams_r_1h', 'zone_1h', 'price']]
+            df.columns = ['Rank', 'Stock', 'Hours', 'W%R', 'Zone', 'Price (₹)']
+            df['W%R'] = df['W%R'].round(2)
+            df['Price (₹)'] = df['Price (₹)'].round(2)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No stocks in extended oversold")
+    
+    st.caption("💡 **Extended Stay:** Stocks that stayed in zone for multiple hours are building energy for reversal")
+    st.caption("⚡ **Higher hours = Higher probability** of reversal when breakout happens")
+
+# ============================================================================
+# TAB 4: HEATMAP
 # ============================================================================
 with tab4:
-    st.subheader("🔥 Stock Monitor - Prices + Technical Heatmap")
-    st.markdown("**Track live prices, day changes, RSI and Williams %R together**")
+    st.subheader("🔥 Technical Indicators Heatmap")
+    st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
     
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
     
@@ -914,221 +1211,41 @@ with tab4:
         options=stock_names,
         default=[],
         max_selections=8,
-        help="Choose stocks to monitor"
+        help="Choose stocks to compare their RSI and Williams %R patterns"
     )
     
     if selected:
         selected_symbols = [s + '.NS' for s in selected]
         
-        with st.spinner(f"Loading data for {len(selected)} stocks..."):
-            # Fetch comprehensive data
-            stock_data = []
-            for symbol in selected_symbols:
-                try:
-                    stock = yf.Ticker(symbol)
-                    
-                    # Get price and day change
-                    hist = stock.history(period='5d', interval='1h')
-                    if len(hist) < 20:
-                        continue
-                    
-                    # Calculate indicators
-                    hist['RSI'] = calculate_rsi(hist)
-                    hist['WilliamsR'] = calculate_williams_r(hist)
-                    hist = hist.dropna()
-                    
-                    if len(hist) == 0:
-                        continue
-                    
-                    # Get day change
-                    hist_daily = stock.history(period='2d')
-                    if len(hist_daily) >= 2:
-                        current_price = hist_daily['Close'].iloc[-1]
-                        prev_close = hist_daily['Close'].iloc[-2]
-                        day_change = current_price - prev_close
-                        day_change_pct = (day_change / prev_close) * 100
-                    else:
-                        current_price = hist['Close'].iloc[-1]
-                        day_change = 0
-                        day_change_pct = 0
-                    
-                    # Get last 30 hours of indicators
-                    recent = hist.tail(30)
-                    
-                    stock_data.append({
-                        'symbol': symbol.replace('.NS', ''),
-                        'price': current_price,
-                        'change': day_change,
-                        'change_pct': day_change_pct,
-                        'current_rsi': hist['RSI'].iloc[-1],
-                        'current_wr': hist['WilliamsR'].iloc[-1],
-                        'rsi_history': recent['RSI'].tolist(),
-                        'wr_history': recent['WilliamsR'].tolist()
-                    })
-                except:
-                    pass
+        with st.spinner(f"Loading heatmap data for {len(selected)} stocks..."):
+            heatmap_html = create_html_heatmap(selected_symbols)
             
-            if stock_data:
-                # Create combined HTML table with heatmap
-                html = """
-                <style>
-                    .combined-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin: 20px 0;
-                        font-size: 12px;
-                    }
-                    .combined-table th {
-                        background-color: #1e1e1e;
-                        color: white;
-                        padding: 10px 8px;
-                        text-align: center;
-                        position: sticky;
-                        top: 0;
-                        z-index: 10;
-                    }
-                    .combined-table td {
-                        padding: 8px;
-                        text-align: center;
-                        border: 1px solid #333;
-                    }
-                    .stock-col {
-                        font-weight: bold;
-                        font-size: 14px;
-                        text-align: left !important;
-                        position: sticky;
-                        left: 0;
-                        background-color: #2d2d2d;
-                        z-index: 5;
-                    }
-                    .price-col {
-                        font-size: 16px;
-                        font-weight: bold;
-                    }
-                    .change-col {
-                        font-size: 14px;
-                        font-weight: bold;
-                    }
-                    .indicator-col {
-                        font-size: 13px;
-                        font-weight: bold;
-                    }
-                    .heatmap-cell {
-                        color: white;
-                        font-weight: bold;
-                        min-width: 35px;
-                    }
-                    .green-bg { background-color: #1a3d1a; }
-                    .red-bg { background-color: #3d1a1a; }
-                    .green-text { color: #4ade80; }
-                    .red-text { color: #f87171; }
-                </style>
-                <div style="overflow-x: auto;">
-                <table class="combined-table">
-                    <thead>
-                        <tr>
-                            <th class="stock-col">Stock</th>
-                            <th>Price (₹)</th>
-                            <th>Day Change</th>
-                            <th>Change %</th>
-                            <th>Current RSI</th>
-                            <th>Current W%R</th>
-                """
+            if heatmap_html:
+                st.markdown(heatmap_html, unsafe_allow_html=True)
                 
-                # Add time headers for heatmap
-                max_len = max(len(s['rsi_history']) for s in stock_data)
-                for i in range(min(max_len, 20)):  # Show last 20 hours
-                    html += f'<th style="font-size: 10px;">{max_len - i}h</th>'
-                
-                html += """
-                        </tr>
-                    </thead>
-                    <tbody>
-                """
-                
-                # Add rows for each stock
-                for stock in stock_data:
-                    bg_class = 'green-bg' if stock['change'] >= 0 else 'red-bg'
-                    text_class = 'green-text' if stock['change'] >= 0 else 'red-text'
-                    sign = '+' if stock['change'] >= 0 else ''
-                    emoji = '🟢' if stock['change'] >= 0 else '🔴'
-                    
-                    # Get RSI color
-                    rsi_color = get_heatmap_color(stock['current_rsi'], 'RSI')
-                    wr_color = get_heatmap_color(stock['current_wr'], 'WR')
-                    
-                    # RSI row
-                    html += f"""
-                    <tr class="{bg_class}">
-                        <td class="stock-col" rowspan="2">{emoji} {stock['symbol']}</td>
-                        <td class="price-col" rowspan="2">₹{stock['price']:.2f}</td>
-                        <td class="change-col {text_class}" rowspan="2">{sign}{stock['change']:.2f}</td>
-                        <td class="change-col {text_class}" rowspan="2">{sign}{stock['change_pct']:.2f}%</td>
-                        <td class="indicator-col" style="background-color: {rsi_color}; color: white;">RSI: {stock['current_rsi']:.0f}</td>
-                        <td class="indicator-col" style="background-color: {wr_color}; color: white;">W%R: {stock['current_wr']:.0f}</td>
-                    """
-                    
-                    # Add RSI heatmap cells (last 20 hours)
-                    rsi_vals = stock['rsi_history'][-20:] if len(stock['rsi_history']) > 20 else stock['rsi_history']
-                    for val in rsi_vals:
-                        color = get_heatmap_color(val, 'RSI')
-                        html += f'<td class="heatmap-cell" style="background-color: {color}" title="RSI: {val:.1f}">{val:.0f}</td>'
-                    
-                    html += "</tr>"
-                    
-                    # Williams %R row
-                    html += f"""
-                    <tr class="{bg_class}">
-                        <td class="indicator-col" colspan="2" style="text-align: left; padding-left: 10px;">Williams %R History →</td>
-                    """
-                    
-                    # Add Williams %R heatmap cells (last 20 hours)
-                    wr_vals = stock['wr_history'][-20:] if len(stock['wr_history']) > 20 else stock['wr_history']
-                    for val in wr_vals:
-                        color = get_heatmap_color(val, 'WR')
-                        html += f'<td class="heatmap-cell" style="background-color: {color}" title="W%R: {val:.1f}">{val:.0f}</td>'
-                    
-                    html += "</tr>"
-                
-                html += """
-                    </tbody>
-                </table>
-                </div>
-                """
-                
-                st.markdown(html, unsafe_allow_html=True)
-                
-                # Color guide
                 st.markdown("---")
                 st.markdown("**🎨 Color Guide:**")
-                col1, col2, col3 = st.columns(3)
+                col1, col2 = st.columns(2)
                 with col1:
                     st.markdown("""
-                    **Price Background:**
-                    - 🟢 Green: Stock gained today
-                    - 🔴 Red: Stock lost today
+                    **RSI:**
+                    - 🟢 Green (40-60): Neutral zone
+                    - 🟠 Orange (30-40, 60-70): Caution zones  
+                    - 🔴 Red (<30, >70): Oversold/Overbought
                     """)
                 with col2:
                     st.markdown("""
-                    **RSI:**
-                    - 🟢 Green (40-60): Neutral
-                    - 🟠 Orange: Caution
-                    - 🔴 Red (<30, >70): Extreme
-                    """)
-                with col3:
-                    st.markdown("""
                     **Williams %R:**
-                    - 🟢 Green (-60 to -40): Neutral
-                    - 🟠 Orange: Caution
-                    - 🔴 Red (<-80, >-20): Extreme
+                    - 🟢 Green (-60 to -40): Neutral zone
+                    - 🟠 Orange (-80 to -60, -40 to -20): Caution zones
+                    - 🔴 Red (<-80, >-20): Oversold/Overbought  
                     """)
-                
             else:
-                st.error("Unable to load data. Please try again.")
+                st.error("Unable to load heatmap data. Please try again.")
     else:
-        st.info("👆 Select stocks from the dropdown above to view combined data")
+        st.info("👆 Select stocks from the dropdown above to view heatmap")
         
-        st.markdown("**💡 Suggested stocks:**")
+        st.markdown("**💡 Suggested stocks to analyze:**")
         col1, col2, col3 = st.columns(3)
         
         with col1:
