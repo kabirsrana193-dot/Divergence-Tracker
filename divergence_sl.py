@@ -64,7 +64,6 @@ NIFTY_200_SYMBOLS = [
 # RSI DIVERGENCE FUNCTIONS
 # ============================================================================
 def calculate_rsi(data, period=14):
-    """Calculate RSI indicator"""
     delta = data['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -73,7 +72,6 @@ def calculate_rsi(data, period=14):
     return rsi
 
 def find_peaks_troughs(data, order=3):
-    """Find local peaks and troughs"""
     price_peaks = argrelextrema(data['Close'].values, np.greater, order=order)[0]
     price_troughs = argrelextrema(data['Close'].values, np.less, order=order)[0]
     rsi_peaks = argrelextrema(data['RSI'].values, np.greater, order=order)[0]
@@ -81,7 +79,6 @@ def find_peaks_troughs(data, order=3):
     return price_peaks, price_troughs, rsi_peaks, rsi_troughs
 
 def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
-    """Calculate divergence strength score"""
     score = 0
     price_change_pct = abs((price_2 - price_1) / price_1 * 100)
     if price_change_pct > 5:
@@ -114,7 +111,6 @@ def calculate_divergence_strength(price_1, price_2, rsi_1, rsi_2, div_type):
     return min(score, 100)
 
 def detect_bullish_divergence(data, lookback=50):
-    """Detect bullish divergence"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
     
@@ -139,7 +135,6 @@ def detect_bullish_divergence(data, lookback=50):
     return divergences
 
 def detect_bearish_divergence(data, lookback=50):
-    """Detect bearish divergence"""
     price_peaks, price_troughs, rsi_peaks, rsi_troughs = find_peaks_troughs(data)
     divergences = []
     
@@ -164,7 +159,6 @@ def detect_bearish_divergence(data, lookback=50):
     return divergences
 
 def analyze_single_timeframe(symbol, period, interval):
-    """Analyze stock for one timeframe"""
     try:
         stock = yf.Ticker(symbol)
         data = stock.history(period=period, interval=interval)
@@ -192,17 +186,12 @@ def analyze_single_timeframe(symbol, period, interval):
         return None
 
 def analyze_stock_rsi(symbol):
-    """Analyze stock across 2 timeframes: 1h and 2h"""
-    
-    # 1-hour 
     tf_1h = analyze_single_timeframe(symbol, '5d', '1h')
     
-    # 2-hour (fetch more data and resample)
     try:
         stock = yf.Ticker(symbol)
         data_2h = stock.history(period='10d', interval='1h')
         if len(data_2h) >= 30:
-            # Resample to 2h
             data_2h = data_2h.resample('2H').agg({
                 'Open': 'first',
                 'High': 'max',
@@ -235,14 +224,12 @@ def analyze_stock_rsi(symbol):
     if tf_1h is None and tf_2h is None:
         return None
     
-    # Get current price
     try:
         stock = yf.Ticker(symbol)
         current_price = stock.history(period='1d')['Close'].iloc[-1]
     except:
         current_price = 0
     
-    # Calculate combined score
     score = 0
     signal = "NEUTRAL"
     details = []
@@ -293,14 +280,12 @@ def analyze_stock_rsi(symbol):
 # WILLIAMS %R FUNCTIONS
 # ============================================================================
 def calculate_williams_r(data, period=14):
-    """Calculate Williams %R indicator"""
     highest_high = data['High'].rolling(window=period).max()
     lowest_low = data['Low'].rolling(window=period).min()
     williams_r = ((highest_high - data['Close']) / (highest_high - lowest_low)) * -100
     return williams_r
 
 def analyze_williams_r_single(symbol, period, interval):
-    """Analyze Williams %R for a single timeframe"""
     try:
         stock = yf.Ticker(symbol)
         data = stock.history(period=period, interval=interval)
@@ -317,7 +302,6 @@ def analyze_williams_r_single(symbol, period, interval):
         current_wr = data['WilliamsR'].iloc[-1]
         current_price = data['Close'].iloc[-1]
         
-        # Determine zone
         zone = None
         zone_type = None
         
@@ -334,7 +318,6 @@ def analyze_williams_r_single(symbol, period, interval):
             zone = "OVERSOLD"
             zone_type = "normal"
         
-        # Check how long in zone (count consecutive candles)
         hours_in_zone = 0
         if zone:
             for i in range(len(data) - 1, -1, -1):
@@ -346,7 +329,7 @@ def analyze_williams_r_single(symbol, period, interval):
                         hours_in_zone += 1
                     else:
                         break
-                else:  # normal
+                else:
                     if "OVERBOUGHT" in zone and -20 <= wr_val < -5:
                         hours_in_zone += 1
                     elif "OVERSOLD" in zone and -95 < wr_val <= -80:
@@ -366,11 +349,8 @@ def analyze_williams_r_single(symbol, period, interval):
         return None
 
 def analyze_williams_r(symbol):
-    """Analyze Williams %R on both 1h and 2h charts"""
-    # 1-hour analysis
     wr_1h = analyze_williams_r_single(symbol, '5d', '1h')
     
-    # 2-hour analysis (fetch more data and resample)
     try:
         stock = yf.Ticker(symbol)
         data_2h = stock.history(period='10d', interval='1h')
@@ -412,7 +392,7 @@ def analyze_williams_r(symbol):
                         wr_val = data_2h['WilliamsR'].iloc[i]
                         if zone_type == "extreme":
                             if "OVERBOUGHT" in zone and -5 <= wr_val <= 0:
-                                hours_in_zone_2h += 2  # 2 hours per candle
+                                hours_in_zone_2h += 2
                             elif "OVERSOLD" in zone and -100 <= wr_val <= -95:
                                 hours_in_zone_2h += 2
                             else:
@@ -460,43 +440,165 @@ def analyze_williams_r(symbol):
         'extended_stay': False
     }
     
-    # Double confirmation (both timeframes in extreme zones)
     if wr_2h and wr_1h['zone_type'] == 'extreme' and wr_2h['zone_type'] == 'extreme':
         if wr_1h['zone'] == wr_2h['zone']:
             result['double_confirmation'] = True
     
-    # Extended stay (3+ hours in zone on 1h chart)
     if wr_1h['hours_in_zone'] >= 3:
         result['extended_stay'] = True
     
     return result
 
 # ============================================================================
-# HEATMAP FUNCTION - Simple Price & Day Change
+# HEATMAP FUNCTIONS
 # ============================================================================
-def get_stock_price_data(symbol):
-    """Get stock price and day change data"""
+def get_stock_heatmap_data(symbol):
     try:
         stock = yf.Ticker(symbol)
-        data = stock.history(period='2d')
+        data = stock.history(period='5d', interval='1h')
         
-        if len(data) < 2:
+        if len(data) < 20:
             return None
         
-        current_price = data['Close'].iloc[-1]
-        prev_price = data['Close'].iloc[-2]
-        day_change = current_price - prev_price
-        day_change_pct = (day_change / prev_price) * 100
+        data['RSI'] = calculate_rsi(data)
+        data['WilliamsR'] = calculate_williams_r(data)
+        data = data.dropna()
+        
+        if len(data) == 0:
+            return None
+        
+        recent_data = data.tail(30)
         
         return {
             'symbol': symbol.replace('.NS', ''),
-            'price': current_price,
-            'day_change': day_change,
-            'day_change_pct': day_change_pct
+            'rsi': recent_data['RSI'].tolist(),
+            'williams_r': recent_data['WilliamsR'].tolist(),
         }
-    except Exception as e:
+    except:
         return None
 
+def get_heatmap_color(value, indicator_type):
+    if indicator_type == 'RSI':
+        if value < 30:
+            return '#dc2626'
+        elif value < 40:
+            return '#f97316'
+        elif value < 60:
+            return '#22c55e'
+        elif value < 70:
+            return '#f97316'
+        else:
+            return '#dc2626'
+    else:
+        if value < -80:
+            return '#dc2626'
+        elif value < -60:
+            return '#f97316'
+        elif value < -40:
+            return '#22c55e'
+        elif value < -20:
+            return '#f97316'
+        else:
+            return '#dc2626'
+
+def create_html_heatmap(selected_stocks):
+    if not selected_stocks:
+        return None
+    
+    heatmap_data = []
+    for symbol in selected_stocks:
+        data = get_stock_heatmap_data(symbol)
+        if data:
+            heatmap_data.append(data)
+    
+    if not heatmap_data:
+        return None
+    
+    html = """
+    <style>
+        .heatmap-container {
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        .heatmap-table {
+            border-collapse: collapse;
+            font-size: 11px;
+            min-width: 100%;
+        }
+        .heatmap-table th {
+            background-color: #1e1e1e;
+            color: white;
+            padding: 8px 4px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .heatmap-table td {
+            padding: 8px 4px;
+            text-align: center;
+            color: white;
+            font-weight: bold;
+            border: 1px solid #333;
+            min-width: 40px;
+        }
+        .stock-label {
+            position: sticky;
+            left: 0;
+            background-color: #2d2d2d;
+            z-index: 5;
+            font-weight: bold;
+            text-align: left;
+            padding-left: 10px !important;
+        }
+    </style>
+    <div class="heatmap-container">
+        <table class="heatmap-table">
+            <thead>
+                <tr>
+                    <th class="stock-label">Stock / Indicator</th>
+    """
+    
+    max_len = max(len(d['rsi']) for d in heatmap_data)
+    for i in range(max_len):
+        html += f'<th>{max_len - i}h</th>'
+    
+    html += "</tr></thead><tbody>"
+    
+    for stock_data in heatmap_data:
+        symbol = stock_data['symbol']
+        rsi_vals = stock_data['rsi'][:]
+        wr_vals = stock_data['williams_r'][:]
+        
+        while len(rsi_vals) < max_len:
+            rsi_vals = [None] + rsi_vals
+            wr_vals = [None] + wr_vals
+        
+        html += f'<tr><td class="stock-label">{symbol} RSI</td>'
+        for val in rsi_vals:
+            if val is not None:
+                color = get_heatmap_color(val, 'RSI')
+                html += f'<td style="background-color: {color}" title="RSI: {val:.1f}">{val:.0f}</td>'
+            else:
+                html += '<td style="background-color: #1e1e1e">-</td>'
+        html += '</tr>'
+        
+        html += f'<tr><td class="stock-label">{symbol} W%R</td>'
+        for val in wr_vals:
+            if val is not None:
+                color = get_heatmap_color(val, 'WR')
+                html += f'<td style="background-color: {color}" title="W%R: {val:.1f}">{val:.0f}</td>'
+            else:
+                html += '<td style="background-color: #1e1e1e">-</td>'
+        html += '</tr>'
+    
+    html += "</tbody></table></div>"
+    
+    return html
+
+# ============================================================================
+# MAIN APP
+# ============================================================================
 # ============================================================================
 # MAIN APP
 # ============================================================================
@@ -563,7 +665,7 @@ if st.session_state.scanned:
     st.success(f"✅ Scan completed at {st.session_state.scan_time.strftime('%H:%M:%S')}")
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Price Heatmap"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 RSI Divergence", "📉 Williams %R", "⏱️ Extended Stay Zones", "🔥 Heatmap"])
 
 # ============================================================================
 # TAB 1: RSI DIVERGENCE
@@ -796,84 +898,53 @@ with tab3:
     st.caption("⚡ **Higher hours = Higher probability** of reversal when breakout happens")
 
 # ============================================================================
-# TAB 4: PRICE HEATMAP
+# TAB 4: HEATMAP
 # ============================================================================
 with tab4:
-    st.subheader("🔥 Price Heatmap - Day Change")
-    st.markdown("**Select stocks to view their current price and day change**")
+    st.subheader("🔥 Technical Indicators Heatmap")
+    st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
     
-    # Create list of stock names without .NS
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
     
-    # Multi-select dropdown
     selected = st.multiselect(
-        "Select stocks:",
+        "Select stocks (max 8):",
         options=stock_names,
         default=[],
-        help="Choose stocks to view price and day change"
+        max_selections=8,
+        help="Choose stocks to compare their RSI and Williams %R patterns"
     )
     
     if selected:
-        # Convert back to .NS format
         selected_symbols = [s + '.NS' for s in selected]
         
-        with st.spinner(f"Loading price data for {len(selected)} stocks..."):
-            price_data = []
-            for symbol in selected_symbols:
-                data = get_stock_price_data(symbol)
-                if data:
-                    price_data.append(data)
+        with st.spinner(f"Loading heatmap data for {len(selected)} stocks..."):
+            heatmap_html = create_html_heatmap(selected_symbols)
             
-            if price_data:
-                # Create DataFrame
-                df = pd.DataFrame(price_data)
-                df = df.sort_values('day_change_pct', ascending=False)
+            if heatmap_html:
+                st.markdown(heatmap_html, unsafe_allow_html=True)
                 
-                # Display as styled dataframe
-                def color_day_change(val):
-                    if val > 0:
-                        return 'background-color: #90EE90; color: #006400'  # Light green bg, dark green text
-                    elif val < 0:
-                        return 'background-color: #FFB6C1; color: #8B0000'  # Light red bg, dark red text
-                    else:
-                        return ''
-                
-                # Format the dataframe
-                df_display = df.copy()
-                df_display['Price (₹)'] = df_display['price'].round(2)
-                df_display['Change (₹)'] = df_display['day_change'].round(2)
-                df_display['Change (%)'] = df_display['day_change_pct'].round(2)
-                df_display = df_display[['symbol', 'Price (₹)', 'Change (₹)', 'Change (%)']]
-                df_display.columns = ['Stock', 'Price (₹)', 'Change (₹)', 'Change (%)']
-                
-                # Apply styling
-                styled_df = df_display.style.applymap(
-                    color_day_change, 
-                    subset=['Change (₹)', 'Change (%)']
-                )
-                
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-                
-                # Summary stats
                 st.markdown("---")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                gainers = [d for d in price_data if d['day_change'] > 0]
-                losers = [d for d in price_data if d['day_change'] < 0]
-                
-                col1.metric("📈 Gainers", len(gainers))
-                col2.metric("📉 Losers", len(losers))
-                if gainers:
-                    col3.metric("🏆 Top Gain", f"{max(d['day_change_pct'] for d in gainers):.2f}%")
-                if losers:
-                    col4.metric("⬇️ Top Loss", f"{min(d['day_change_pct'] for d in losers):.2f}%")
-                
+                st.markdown("**🎨 Color Guide:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("""
+                    **RSI:**
+                    - 🟢 Green (40-60): Neutral zone
+                    - 🟠 Orange (30-40, 60-70): Caution zones  
+                    - 🔴 Red (<30, >70): Oversold/Overbought
+                    """)
+                with col2:
+                    st.markdown("""
+                    **Williams %R:**
+                    - 🟢 Green (-60 to -40): Neutral zone
+                    - 🟠 Orange (-80 to -60, -40 to -20): Caution zones
+                    - 🔴 Red (<-80, >-20): Oversold/Overbought  
+                    """)
             else:
-                st.error("Unable to load price data. Please try again.")
+                st.error("Unable to load heatmap data. Please try again.")
     else:
-        st.info("👆 Select stocks from the dropdown above to view price heatmap")
+        st.info("👆 Select stocks from the dropdown above to view heatmap")
         
-        # Show some suggested stocks
         st.markdown("**💡 Suggested stocks to analyze:**")
         col1, col2, col3 = st.columns(3)
         
