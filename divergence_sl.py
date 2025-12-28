@@ -450,146 +450,181 @@ def analyze_williams_r(symbol):
     return result
 
 # ============================================================================
-# PRICE HEATMAP FUNCTIONS
+# HEATMAP FUNCTIONS
 # ============================================================================
-def get_stock_price_change_data(symbol):
+def get_stock_heatmap_data(symbol):
     try:
         stock = yf.Ticker(symbol)
-        data = stock.history(period='15d', interval='1d')
+        data = stock.history(period='5d', interval='1h')
         
-        if len(data) < 2:
+        if len(data) < 20:
+            return None
+        
+        data['RSI'] = calculate_rsi(data)
+        data['WilliamsR'] = calculate_williams_r(data)
+        data = data.dropna()
+        
+        if len(data) == 0:
             return None
         
         recent_data = data.tail(15)
         
-        prices = []
-        changes = []
-        
-        for i in range(len(recent_data)):
-            prices.append(recent_data['Close'].iloc[i])
-            if i > 0:
-                prev_close = recent_data['Close'].iloc[i-1]
-                curr_close = recent_data['Close'].iloc[i]
-                pct_change = ((curr_close - prev_close) / prev_close) * 100
-                changes.append(pct_change)
-            else:
-                changes.append(0)
-        
         return {
             'symbol': symbol.replace('.NS', ''),
-            'prices': prices,
-            'changes': changes,
-            'current_price': prices[-1]
+            'rsi': recent_data['RSI'].tolist(),
+            'williams_r': recent_data['WilliamsR'].tolist(),
+            'prices': recent_data['Close'].tolist(),
         }
     except:
         return None
 
-def get_change_color(change_pct):
-    if change_pct >= 3:
+def get_heatmap_color(value, indicator_type):
+    if indicator_type == 'RSI':
+        if value < 30:
+            return '#dc2626'
+        elif value < 40:
+            return '#f97316'
+        elif value < 60:
+            return '#22c55e'
+        elif value < 70:
+            return '#f97316'
+        else:
+            return '#dc2626'
+    else:
+        if value < -80:
+            return '#dc2626'
+        elif value < -60:
+            return '#f97316'
+        elif value < -40:
+            return '#22c55e'
+        elif value < -20:
+            return '#f97316'
+        else:
+            return '#dc2626'
+
+def get_price_change_color(change_pct):
+    if change_pct >= 1:
         return '#16a34a'
-    elif change_pct >= 1.5:
-        return '#22c55e'
     elif change_pct >= 0.5:
+        return '#22c55e'
+    elif change_pct >= 0.2:
         return '#4ade80'
-    elif change_pct > -0.5:
+    elif change_pct > -0.2:
         return '#6b7280'
-    elif change_pct > -1.5:
+    elif change_pct > -0.5:
         return '#fb923c'
-    elif change_pct > -3:
+    elif change_pct > -1:
         return '#f97316'
     else:
         return '#dc2626'
 
-def create_price_change_heatmap(selected_stocks):
+def create_html_heatmap(selected_stocks):
     if not selected_stocks:
         return None
     
     heatmap_data = []
     for symbol in selected_stocks:
-        data = get_stock_price_change_data(symbol)
+        data = get_stock_heatmap_data(symbol)
         if data:
             heatmap_data.append(data)
     
     if not heatmap_data:
         return None
     
-    max_days = max(len(d['changes']) for d in heatmap_data)
-    
     html = """
     <style>
-        .price-heatmap-container {
+        .heatmap-container {
             overflow-x: auto;
             margin: 20px 0;
         }
-        .price-heatmap-table {
+        .heatmap-table {
             border-collapse: collapse;
-            font-size: 12px;
-            width: 100%;
+            font-size: 11px;
+            min-width: 100%;
         }
-        .price-heatmap-table th {
-            background-color: #1e293b;
+        .heatmap-table th {
+            background-color: #1e1e1e;
             color: white;
-            padding: 10px 8px;
+            padding: 8px 4px;
             text-align: center;
             position: sticky;
             top: 0;
             z-index: 10;
-            border: 1px solid #334155;
         }
-        .price-heatmap-table td {
-            padding: 10px 8px;
+        .heatmap-table td {
+            padding: 8px 4px;
             text-align: center;
             color: white;
-            font-weight: 600;
-            border: 1px solid #334155;
-            min-width: 70px;
+            font-weight: bold;
+            border: 1px solid #333;
+            min-width: 40px;
         }
-        .stock-name-col {
+        .stock-label {
             position: sticky;
             left: 0;
-            background-color: #1e293b;
+            background-color: #2d2d2d;
             z-index: 5;
             font-weight: bold;
             text-align: left;
-            padding-left: 12px !important;
-            min-width: 120px;
-        }
-        .price-cell {
-            background-color: #475569;
-            font-size: 11px;
+            padding-left: 10px !important;
         }
     </style>
-    <div class="price-heatmap-container">
-        <table class="price-heatmap-table">
+    <div class="heatmap-container">
+        <table class="heatmap-table">
             <thead>
                 <tr>
-                    <th class="stock-name-col">Stock</th>
+                    <th class="stock-label">Stock / Indicator</th>
     """
     
-    for i in range(max_days):
-        day_label = f"D-{max_days - i - 1}" if i < max_days - 1 else "Today"
-        html += f'<th>{day_label}</th>'
+    max_len = max(len(d['rsi']) for d in heatmap_data)
+    for i in range(max_len):
+        html += f'<th>{max_len - i}h</th>'
     
     html += "</tr></thead><tbody>"
     
     for stock_data in heatmap_data:
         symbol = stock_data['symbol']
+        rsi_vals = stock_data['rsi'][:]
+        wr_vals = stock_data['williams_r'][:]
         prices = stock_data['prices'][:]
-        changes = stock_data['changes'][:]
         
-        while len(changes) < max_days:
+        while len(rsi_vals) < max_len:
+            rsi_vals = [None] + rsi_vals
+            wr_vals = [None] + wr_vals
             prices = [None] + prices
-            changes = [None] + changes
         
-        html += f'<tr><td class="stock-name-col">{symbol}</td>'
-        for i, change in enumerate(changes):
-            if change is not None and prices[i] is not None:
-                color = get_change_color(change)
-                price = prices[i]
-                sign = '+' if change > 0 else ''
-                html += f'<td style="background-color: {color}" title="Price: ₹{price:.2f} | Change: {sign}{change:.2f}%">{sign}{change:.1f}%<br><span style="font-size:10px">₹{price:.0f}</span></td>'
+        # RSI row
+        html += f'<tr><td class="stock-label">{symbol} RSI</td>'
+        for val in rsi_vals:
+            if val is not None:
+                color = get_heatmap_color(val, 'RSI')
+                html += f'<td style="background-color: {color}" title="RSI: {val:.1f}">{val:.0f}</td>'
             else:
-                html += '<td style="background-color: #1e293b">-</td>'
+                html += '<td style="background-color: #1e1e1e">-</td>'
+        html += '</tr>'
+        
+        # Williams %R row
+        html += f'<tr><td class="stock-label">{symbol} W%R</td>'
+        for val in wr_vals:
+            if val is not None:
+                color = get_heatmap_color(val, 'WR')
+                html += f'<td style="background-color: {color}" title="W%R: {val:.1f}">{val:.0f}</td>'
+            else:
+                html += '<td style="background-color: #1e1e1e">-</td>'
+        html += '</tr>'
+        
+        # Price change row
+        html += f'<tr><td class="stock-label">{symbol} Price</td>'
+        for i, price in enumerate(prices):
+            if price is not None and i > 0 and prices[i-1] is not None:
+                change_pct = ((price - prices[i-1]) / prices[i-1]) * 100
+                color = get_price_change_color(change_pct)
+                sign = '+' if change_pct > 0 else ''
+                html += f'<td style="background-color: {color}" title="Price: ₹{price:.2f} | Change: {sign}{change_pct:.2f}%">{sign}{change_pct:.1f}%</td>'
+            elif price is not None:
+                html += f'<td style="background-color: #1e1e1e" title="Price: ₹{price:.2f}">-</td>'
+            else:
+                html += '<td style="background-color: #1e1e1e">-</td>'
         html += '</tr>'
     
     html += "</tbody></table></div>"
@@ -898,24 +933,24 @@ with tab3:
 # TAB 4: PRICE HEATMAP
 # ============================================================================
 with tab4:
-    st.subheader("🔥 Price & Daily Change Heatmap")
-    st.markdown("**Visualize daily price movements and percentage changes across 15 days**")
+    st.subheader("🔥 Technical Indicators & Price Heatmap")
+    st.markdown("**RSI, Williams %R, and Price Changes over last 15 hours**")
     
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
     
     selected = st.multiselect(
-        "Select stocks to compare (max 15):",
+        "Select stocks (max 8):",
         options=stock_names,
         default=[],
-        max_selections=15,
-        help="Choose stocks to see their daily price movements and changes"
+        max_selections=8,
+        help="Choose stocks to compare their RSI, Williams %R, and Price patterns"
     )
     
     if selected:
         selected_symbols = [s + '.NS' for s in selected]
         
-        with st.spinner(f"Loading price data for {len(selected)} stocks..."):
-            heatmap_html = create_price_change_heatmap(selected_symbols)
+        with st.spinner(f"Loading heatmap data for {len(selected)} stocks..."):
+            heatmap_html = create_html_heatmap(selected_symbols)
             
             if heatmap_html:
                 st.markdown(heatmap_html, unsafe_allow_html=True)
@@ -925,36 +960,39 @@ with tab4:
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.markdown("""
-                    **Strong Positive:**
-                    - 🟢 Dark Green: +3% or more
-                    - 🟢 Green: +1.5% to +3%
-                    - 🟢 Light Green: +0.5% to +1.5%
+                    **RSI:**
+                    - 🟢 Green (40-60): Neutral zone
+                    - 🟠 Orange (30-40, 60-70): Caution zones  
+                    - 🔴 Red (<30, >70): Oversold/Overbought
                     """)
                 with col2:
                     st.markdown("""
-                    **Neutral:**
-                    - ⚪ Gray: -0.5% to +0.5%
+                    **Williams %R:**
+                    - 🟢 Green (-60 to -40): Neutral zone
+                    - 🟠 Orange (-80 to -60, -40 to -20): Caution zones
+                    - 🔴 Red (<-80, >-20): Oversold/Overbought  
                     """)
                 with col3:
                     st.markdown("""
-                    **Negative:**
-                    - 🟠 Light Orange: -0.5% to -1.5%
-                    - 🟠 Orange: -1.5% to -3%
-                    - 🔴 Red: -3% or more
+                    **Price Change:**
+                    - 🟢 Green: Positive hourly change
+                    - ⚪ Gray: Flat (-0.2% to +0.2%)
+                    - 🟠 Orange: Moderate negative
+                    - 🔴 Red: Strong negative
                     """)
-                
-                st.caption("💡 **Tip:** Hover over cells to see exact price and percentage change")
             else:
                 st.error("Unable to load heatmap data. Please try again.")
     else:
-        st.info("👆 Select stocks from the dropdown above to view price heatmap")
+        st.info("👆 Select stocks from the dropdown above to view heatmap")
         
         st.markdown("**📊 What you'll see:**")
         st.markdown("""
-        - **D-14 to Today:** 15 days of daily price changes
-        - **Color coding:** Green for gains, red for losses
-        - **Quick patterns:** Spot winning/losing streaks at a glance
-        - **Price display:** Current price shown below percentage change
+        **Three rows per stock:**
+        - **RSI Row:** Shows RSI values for last 15 hours
+        - **Williams %R Row:** Shows W%R values for last 15 hours  
+        - **Price Row:** Shows hourly % price changes for last 15 hours
+        
+        All on the same timeline - easy comparison!
         """)
         
         st.markdown("---")
