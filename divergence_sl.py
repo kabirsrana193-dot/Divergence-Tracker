@@ -900,9 +900,12 @@ with tab3:
 # ============================================================================
 # TAB 4: HEATMAP
 # ============================================================================
+# ============================================================================
+# TAB 4: HEATMAP WITH LIVE PRICES
+# ============================================================================
 with tab4:
-    st.subheader("🔥 Technical Indicators Heatmap")
-    st.markdown("**Select up to 8 stocks to visualize RSI and Williams %R heatmaps**")
+    st.subheader("🔥 Stock Monitor - Prices + Technical Heatmap")
+    st.markdown("**Track live prices, day changes, RSI and Williams %R together**")
     
     stock_names = [s.replace('.NS', '') for s in NIFTY_200_SYMBOLS]
     
@@ -911,41 +914,221 @@ with tab4:
         options=stock_names,
         default=[],
         max_selections=8,
-        help="Choose stocks to compare their RSI and Williams %R patterns"
+        help="Choose stocks to monitor"
     )
     
     if selected:
         selected_symbols = [s + '.NS' for s in selected]
         
-        with st.spinner(f"Loading heatmap data for {len(selected)} stocks..."):
-            heatmap_html = create_html_heatmap(selected_symbols)
+        with st.spinner(f"Loading data for {len(selected)} stocks..."):
+            # Fetch comprehensive data
+            stock_data = []
+            for symbol in selected_symbols:
+                try:
+                    stock = yf.Ticker(symbol)
+                    
+                    # Get price and day change
+                    hist = stock.history(period='5d', interval='1h')
+                    if len(hist) < 20:
+                        continue
+                    
+                    # Calculate indicators
+                    hist['RSI'] = calculate_rsi(hist)
+                    hist['WilliamsR'] = calculate_williams_r(hist)
+                    hist = hist.dropna()
+                    
+                    if len(hist) == 0:
+                        continue
+                    
+                    # Get day change
+                    hist_daily = stock.history(period='2d')
+                    if len(hist_daily) >= 2:
+                        current_price = hist_daily['Close'].iloc[-1]
+                        prev_close = hist_daily['Close'].iloc[-2]
+                        day_change = current_price - prev_close
+                        day_change_pct = (day_change / prev_close) * 100
+                    else:
+                        current_price = hist['Close'].iloc[-1]
+                        day_change = 0
+                        day_change_pct = 0
+                    
+                    # Get last 30 hours of indicators
+                    recent = hist.tail(30)
+                    
+                    stock_data.append({
+                        'symbol': symbol.replace('.NS', ''),
+                        'price': current_price,
+                        'change': day_change,
+                        'change_pct': day_change_pct,
+                        'current_rsi': hist['RSI'].iloc[-1],
+                        'current_wr': hist['WilliamsR'].iloc[-1],
+                        'rsi_history': recent['RSI'].tolist(),
+                        'wr_history': recent['WilliamsR'].tolist()
+                    })
+                except:
+                    pass
             
-            if heatmap_html:
-                st.markdown(heatmap_html, unsafe_allow_html=True)
+            if stock_data:
+                # Create combined HTML table with heatmap
+                html = """
+                <style>
+                    .combined-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 20px 0;
+                        font-size: 12px;
+                    }
+                    .combined-table th {
+                        background-color: #1e1e1e;
+                        color: white;
+                        padding: 10px 8px;
+                        text-align: center;
+                        position: sticky;
+                        top: 0;
+                        z-index: 10;
+                    }
+                    .combined-table td {
+                        padding: 8px;
+                        text-align: center;
+                        border: 1px solid #333;
+                    }
+                    .stock-col {
+                        font-weight: bold;
+                        font-size: 14px;
+                        text-align: left !important;
+                        position: sticky;
+                        left: 0;
+                        background-color: #2d2d2d;
+                        z-index: 5;
+                    }
+                    .price-col {
+                        font-size: 16px;
+                        font-weight: bold;
+                    }
+                    .change-col {
+                        font-size: 14px;
+                        font-weight: bold;
+                    }
+                    .indicator-col {
+                        font-size: 13px;
+                        font-weight: bold;
+                    }
+                    .heatmap-cell {
+                        color: white;
+                        font-weight: bold;
+                        min-width: 35px;
+                    }
+                    .green-bg { background-color: #1a3d1a; }
+                    .red-bg { background-color: #3d1a1a; }
+                    .green-text { color: #4ade80; }
+                    .red-text { color: #f87171; }
+                </style>
+                <div style="overflow-x: auto;">
+                <table class="combined-table">
+                    <thead>
+                        <tr>
+                            <th class="stock-col">Stock</th>
+                            <th>Price (₹)</th>
+                            <th>Day Change</th>
+                            <th>Change %</th>
+                            <th>Current RSI</th>
+                            <th>Current W%R</th>
+                """
                 
+                # Add time headers for heatmap
+                max_len = max(len(s['rsi_history']) for s in stock_data)
+                for i in range(min(max_len, 20)):  # Show last 20 hours
+                    html += f'<th style="font-size: 10px;">{max_len - i}h</th>'
+                
+                html += """
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                
+                # Add rows for each stock
+                for stock in stock_data:
+                    bg_class = 'green-bg' if stock['change'] >= 0 else 'red-bg'
+                    text_class = 'green-text' if stock['change'] >= 0 else 'red-text'
+                    sign = '+' if stock['change'] >= 0 else ''
+                    emoji = '🟢' if stock['change'] >= 0 else '🔴'
+                    
+                    # Get RSI color
+                    rsi_color = get_heatmap_color(stock['current_rsi'], 'RSI')
+                    wr_color = get_heatmap_color(stock['current_wr'], 'WR')
+                    
+                    # RSI row
+                    html += f"""
+                    <tr class="{bg_class}">
+                        <td class="stock-col" rowspan="2">{emoji} {stock['symbol']}</td>
+                        <td class="price-col" rowspan="2">₹{stock['price']:.2f}</td>
+                        <td class="change-col {text_class}" rowspan="2">{sign}{stock['change']:.2f}</td>
+                        <td class="change-col {text_class}" rowspan="2">{sign}{stock['change_pct']:.2f}%</td>
+                        <td class="indicator-col" style="background-color: {rsi_color}; color: white;">RSI: {stock['current_rsi']:.0f}</td>
+                        <td class="indicator-col" style="background-color: {wr_color}; color: white;">W%R: {stock['current_wr']:.0f}</td>
+                    """
+                    
+                    # Add RSI heatmap cells (last 20 hours)
+                    rsi_vals = stock['rsi_history'][-20:] if len(stock['rsi_history']) > 20 else stock['rsi_history']
+                    for val in rsi_vals:
+                        color = get_heatmap_color(val, 'RSI')
+                        html += f'<td class="heatmap-cell" style="background-color: {color}" title="RSI: {val:.1f}">{val:.0f}</td>'
+                    
+                    html += "</tr>"
+                    
+                    # Williams %R row
+                    html += f"""
+                    <tr class="{bg_class}">
+                        <td class="indicator-col" colspan="2" style="text-align: left; padding-left: 10px;">Williams %R History →</td>
+                    """
+                    
+                    # Add Williams %R heatmap cells (last 20 hours)
+                    wr_vals = stock['wr_history'][-20:] if len(stock['wr_history']) > 20 else stock['wr_history']
+                    for val in wr_vals:
+                        color = get_heatmap_color(val, 'WR')
+                        html += f'<td class="heatmap-cell" style="background-color: {color}" title="W%R: {val:.1f}">{val:.0f}</td>'
+                    
+                    html += "</tr>"
+                
+                html += """
+                    </tbody>
+                </table>
+                </div>
+                """
+                
+                st.markdown(html, unsafe_allow_html=True)
+                
+                # Color guide
                 st.markdown("---")
                 st.markdown("**🎨 Color Guide:**")
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.markdown("""
-                    **RSI:**
-                    - 🟢 Green (40-60): Neutral zone
-                    - 🟠 Orange (30-40, 60-70): Caution zones  
-                    - 🔴 Red (<30, >70): Oversold/Overbought
+                    **Price Background:**
+                    - 🟢 Green: Stock gained today
+                    - 🔴 Red: Stock lost today
                     """)
                 with col2:
                     st.markdown("""
-                    **Williams %R:**
-                    - 🟢 Green (-60 to -40): Neutral zone
-                    - 🟠 Orange (-80 to -60, -40 to -20): Caution zones
-                    - 🔴 Red (<-80, >-20): Oversold/Overbought  
+                    **RSI:**
+                    - 🟢 Green (40-60): Neutral
+                    - 🟠 Orange: Caution
+                    - 🔴 Red (<30, >70): Extreme
                     """)
+                with col3:
+                    st.markdown("""
+                    **Williams %R:**
+                    - 🟢 Green (-60 to -40): Neutral
+                    - 🟠 Orange: Caution
+                    - 🔴 Red (<-80, >-20): Extreme
+                    """)
+                
             else:
-                st.error("Unable to load heatmap data. Please try again.")
+                st.error("Unable to load data. Please try again.")
     else:
-        st.info("👆 Select stocks from the dropdown above to view heatmap")
+        st.info("👆 Select stocks from the dropdown above to view combined data")
         
-        st.markdown("**💡 Suggested stocks to analyze:**")
+        st.markdown("**💡 Suggested stocks:**")
         col1, col2, col3 = st.columns(3)
         
         with col1:
