@@ -455,18 +455,26 @@ def analyze_williams_r(symbol):
 def get_stock_heatmap_data(symbol):
     try:
         stock = yf.Ticker(symbol)
+        # Get more data to ensure we have enough after calculations
         data = stock.history(period='5d', interval='1h')
         
         if len(data) < 20:
             return None
         
+        # Calculate indicators
         data['RSI'] = calculate_rsi(data)
         data['WilliamsR'] = calculate_williams_r(data)
+        
+        # Calculate hourly price changes BEFORE dropping NaN
+        data['PriceChange'] = data['Close'].pct_change() * 100
+        
+        # Now drop NaN rows
         data = data.dropna()
         
         if len(data) == 0:
             return None
         
+        # Get last 15 rows
         recent_data = data.tail(15)
         
         return {
@@ -474,8 +482,10 @@ def get_stock_heatmap_data(symbol):
             'rsi': recent_data['RSI'].tolist(),
             'williams_r': recent_data['WilliamsR'].tolist(),
             'prices': recent_data['Close'].tolist(),
+            'price_changes': recent_data['PriceChange'].tolist(),
         }
-    except:
+    except Exception as e:
+        print(f"Error fetching data for {symbol}: {e}")
         return None
 
 def get_heatmap_color(value, indicator_type):
@@ -567,6 +577,7 @@ def create_html_heatmap(selected_stocks):
             font-weight: bold;
             text-align: left;
             padding-left: 10px !important;
+            min-width: 120px;
         }
     </style>
     <div class="heatmap-container">
@@ -587,11 +598,13 @@ def create_html_heatmap(selected_stocks):
         rsi_vals = stock_data['rsi'][:]
         wr_vals = stock_data['williams_r'][:]
         prices = stock_data['prices'][:]
+        price_changes = stock_data['price_changes'][:]
         
         while len(rsi_vals) < max_len:
             rsi_vals = [None] + rsi_vals
             wr_vals = [None] + wr_vals
             prices = [None] + prices
+            price_changes = [None] + price_changes
         
         # RSI row
         html += f'<tr><td class="stock-label">{symbol} RSI</td>'
@@ -615,14 +628,16 @@ def create_html_heatmap(selected_stocks):
         
         # Price change row
         html += f'<tr><td class="stock-label">{symbol} Price</td>'
-        for i, price in enumerate(prices):
-            if price is not None and i > 0 and prices[i-1] is not None:
-                change_pct = ((price - prices[i-1]) / prices[i-1]) * 100
-                color = get_price_change_color(change_pct)
-                sign = '+' if change_pct > 0 else ''
-                html += f'<td style="background-color: {color}" title="Price: ₹{price:.2f} | Change: {sign}{change_pct:.2f}%">{sign}{change_pct:.1f}%</td>'
+        for i in range(len(price_changes)):
+            price = prices[i]
+            change = price_changes[i]
+            
+            if price is not None and change is not None:
+                color = get_price_change_color(change)
+                sign = '+' if change > 0 else ''
+                html += f'<td style="background-color: {color}" title="Price: ₹{price:.2f} | Change: {sign}{change:.2f}%">₹{price:.0f}<br><span style="font-size:9px">{sign}{change:.1f}%</span></td>'
             elif price is not None:
-                html += f'<td style="background-color: #1e1e1e" title="Price: ₹{price:.2f}">-</td>'
+                html += f'<td style="background-color: #1e1e1e" title="Price: ₹{price:.2f}">₹{price:.0f}<br><span style="font-size:9px">-</span></td>'
             else:
                 html += '<td style="background-color: #1e1e1e">-</td>'
         html += '</tr>'
